@@ -31,7 +31,6 @@ class EnsembleProteinAffinityModule():
         affinity_module: AffinityModule,
         atomic_affinity: bool,
         ensemble_sampling_strategy: str = "top_k",  # "random", "top_k", "all"
-        min_ensemble_size: int = 5,
         ccd_templates: Optional[Dict[str, Mol]] = None,
         mol_dir: Optional[str] = None,
         **kwargs
@@ -61,8 +60,8 @@ class EnsembleProteinAffinityModule():
         self.affinity_module = affinity_module
         self.atomic_affinity = atomic_affinity
 
-        self.max_ensemble_size = 10 if self.atomic_affinity else 20
-        self.min_ensemble_size = min_ensemble_size
+        self.max_ensemble_size = kwargs["max_ensemble_size"]
+        self.min_ensemble_size = kwargs["min_ensemble_size"]
         self.ensemble_sampling_strategy = ensemble_sampling_strategy
         self.featurizer = ProteinProteinFeaturizer()
         
@@ -150,11 +149,9 @@ class EnsembleProteinAffinityModule():
         if num_binder_residues == 0:
             raise ValueError("No binder residues found for ensemble affinity prediction")
         
-        # Ensure we have at least min_ensemble_size residues
-        ensemble_size = min(
-            max(num_binder_residues, self.min_ensemble_size),
-            self.max_ensemble_size
-        )
+        # Use all available binder residues up to max_ensemble_size
+        # If we have fewer than min_ensemble_size, use what we have
+        ensemble_size = min(num_binder_residues, self.max_ensemble_size)
         
         if self.ensemble_sampling_strategy == "all" or num_binder_residues <= ensemble_size:
             return binder_indices
