@@ -1,0 +1,14 @@
+version: 1  # Optional, defaults to 1
+sequences:
+  - protein:
+      id: A
+      sequence: TNSELLSLINDMPITNDQKKLMSNNVQIV
+      msa: msa/antibody_0.csv
+  - protein:
+      id: B
+      sequence: EVQLVESGGGLVQPGGSLRLSCAASGLNL
+      msa: msa/antibody_1.csv
+properties:
+  - affinity:
+      binder: B
+

@@ -35,7 +35,7 @@ from boltz.model.modules.trunkv2 import (
 )
 from boltz.model.optim.ema import EMA
 from boltz.model.optim.scheduler import AlphaFoldLRScheduler
-
+import pickle
 
 class Boltz2_pc(LightningModule):
     """
@@ -345,6 +345,13 @@ class Boltz2_pc(LightningModule):
         # Initialize protein-protein affinity modules
         if self.affinity_prediction:
             if self.affinity_ensemble:
+                with open("affinity_module1.pkl", "wb") as f:
+                    out_dict = {"token_s": token_s,
+                     "token_z": token_z, 
+                     "protein_ligand_mode": protein_ligand_mode, 
+                     "affinity_model_args1": affinity_model_args1}
+                    pickle.dump(out_dict, f)
+
                 # Use protein-protein affinity modules for ensemble
                 self.affinity_module1 = ProteinProteinAffinityModule(
                     token_s,
@@ -678,6 +685,14 @@ class Boltz2_pc(LightningModule):
         # Run affinity prediction
         with torch.autocast("cuda", enabled=False):
             if self.affinity_ensemble:
+                with open("affinity_input_sample.pkl", "wb") as f:
+                    out_dict = {"s_inputs_affinity": s_inputs_affinity.detach(),
+                                "z_affinity": z_affinity.detach(),
+                                "coords_affinity": coords_affinity,
+                                "feats": feats,
+                                "multiplicity": 1,
+                                "use_kernels": self.use_kernels}
+                    pickle.dump(out_dict, f)
                 # Ensemble prediction
                 dict_out_affinity1 = self.affinity_module1(
                     s_inputs=s_inputs_affinity.detach(),

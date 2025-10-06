@@ -203,7 +203,9 @@ class BoltzWriter(BasePredictionWriter):
                     
                     #print("IPTM", model_idx)
                     #print(prediction['iptm'][model_idx])
-                    confidence_summary_dict["best_iptm_idx"] = idx_to_rank[prediction["best_iptm_idx"]] 
+                    if "best_iptm_idx" in prediction:
+                        confidence_summary_dict["best_iptm_idx"] = idx_to_rank[prediction["best_iptm_idx"]] 
+                    
                     confidence_summary_dict["chains_ptm"] = {
                         idx: prediction["pair_chains_iptm"][idx][idx][model_idx].item()
                         for idx in prediction["pair_chains_iptm"]
