@@ -364,89 +364,6 @@ def filter_inputs_structure(
     return manifest
 
 
-def _run_optimized_affinity_prediction(
-    manifest_filtered: Manifest,
-    out_dir: Path,
-    processed: BoltzProcessedInput,
-    model: str,
-    affinity_checkpoint: Optional[str],
-    cache: Path,
-    affinity_mw_correction: bool,
-    protein_ligand_mode: bool,
-    atomic_affinity: bool,
-    max_ensemble_size: int,
-    min_ensemble_size: int,
-    mol_dir: Path,
-) -> None:
-    """
-    Run optimized affinity prediction by reusing structure prediction results.
-    
-    This function loads the pre-computed structure from the first run and only
-    runs the affinity-specific computation, avoiding the need to recompute structure.
-    """
-    click.echo("Loading pre-computed structure prediction results...")
-    
-    # Load the affinity model (same as before)
-    if affinity_checkpoint is None:
-        affinity_checkpoint = cache / "boltz2_aff.ckpt"
-    
-    # Load model parameters (reuse from main function)
-    diffusion_params = Boltz2DiffusionParams()
-    pairformer_args = PairformerArgsV2()
-    msa_args = MSAModuleArgs(subsample_msa=True, num_subsampled_msa=1024)
-    steering_args = BoltzSteeringParams()
-    steering_args.fk_steering = False
-    steering_args.physical_guidance_update = False
-    steering_args.contact_guidance_update = False
-    
-    # Load the model
-    if model == "boltz2_ensemble":
-        from boltz.model.models.boltz2_ensemble import Boltz2Ensemble
-        model_module = Boltz2Ensemble.load_from_checkpoint(
-            affinity_checkpoint,
-            strict=True,
-            predict_args={},
-            map_location="cpu",
-            diffusion_process_args=asdict(diffusion_params),
-            ema=False,
-            pairformer_args=asdict(pairformer_args),
-            msa_args=asdict(msa_args),
-            steering_args=asdict(steering_args),
-            affinity_mw_correction=affinity_mw_correction,
-            atomic_affinity=atomic_affinity,
-            max_ensemble_size=max_ensemble_size,
-            min_ensemble_size=min_ensemble_size,
-            mol_dir=mol_dir,
-        )
-    else:
-        # For other models, use the standard approach
-        click.echo(f"Optimized affinity prediction not yet implemented for model: {model}")
-        click.echo("Falling back to standard affinity prediction...")
-        return
-    
-    model_module.eval()
-    
-    # Process each record
-    for record in manifest_filtered.records:
-        click.echo(f"Processing {record.id}...")
-        
-        # Load the pre-computed structure
-        structure_path = out_dir / "predictions" / record.id / f"pre_affinity_{record.id}.npz"
-        if not structure_path.exists():
-            click.echo(f"Warning: Pre-computed structure not found for {record.id}, skipping.")
-            continue
-            
-        # TODO: Implement direct affinity computation using the saved structure
-        # This would involve:
-        # 1. Loading the structure from the .npz file
-        # 2. Running only the affinity module on the pre-computed structure
-        # 3. Saving the affinity results
-        
-        click.echo(f"Note: Direct affinity computation for {record.id} not yet fully implemented.")
-    
-    click.echo("Optimized affinity prediction completed.")
-
-
 def filter_inputs_affinity(
     manifest: Manifest,
     outdir: Path,
@@ -1162,11 +1079,6 @@ def cli() -> None:
     is_flag=True,
     help=" to dump the s and z embeddings into a npz file. Default is False.",
 )
-@click.option(
-    "--skip_affinity_structure_recomputation",
-    is_flag=True,
-    help="Skip structure recomputation for affinity prediction and reuse results from structure prediction. Default is False.",
-)
 def predict(  # noqa: C901, PLR0915, PLR0912
     data: str,
     out_dir: str,
@@ -1210,7 +1122,6 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     max_ensemble_size: int = 20,
     min_ensemble_size: int = 5,
     process_yaml: bool = False,
-    skip_affinity_structure_recomputation: bool = False,
 ) -> None:
     """Run predictions with Boltz."""
     # If cpu, write a friendly warning
@@ -1495,25 +1406,6 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         msg = f"Running affinity prediction for {len(manifest_filtered.records)} input"
         msg += "s." if len(manifest_filtered.records) > 1 else "."
         click.echo(msg)
-        
-        # Optimization: Skip structure recomputation if requested
-        if skip_affinity_structure_recomputation:
-            click.echo("Skipping structure recomputation for affinity prediction - reusing structure prediction results.")
-            _run_optimized_affinity_prediction(
-                manifest_filtered=manifest_filtered,
-                out_dir=out_dir,
-                processed=processed,
-                model=model,
-                affinity_checkpoint=affinity_checkpoint,
-                cache=cache,
-                affinity_mw_correction=affinity_mw_correction,
-                protein_ligand_mode=protein_ligand_mode,
-                atomic_affinity=atomic_affinity,
-                max_ensemble_size=max_ensemble_size,
-                min_ensemble_size=min_ensemble_size,
-                mol_dir=mol_dir,
-            )
-            return
 
         pred_writer = BoltzAffinityWriter(
             data_dir=processed.targets_dir,
@@ -1610,6 +1502,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 max_ensemble_size = max_ensemble_size,
                 min_ensemble_size = min_ensemble_size,
                 mol_dir = mol_dir,
+                run_trunk_and_structure=True,  # Skip trunk and structure computation for affinity
             )
         model_module.eval()
 
