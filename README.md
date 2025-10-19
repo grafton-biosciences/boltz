@@ -49,7 +49,16 @@ boltz predict input_path --use_msa_server
 
 
 ### Binding Affinity Prediction
-There are two main predictions in the affinity output: `affinity_pred_value` and `affinity_probability_binary`. They are trained on largely different datasets, with different supervisions, and should be used in different contexts. The `affinity_probability_binary` field should be used to detect binders from decoys, for example in a hit-discovery stage. It's value ranges from 0 to 1 and represents the predicted probability that the ligand is a binder. The `affinity_pred_value` aims to measure the specific affinity of different binders and how this changes with small modifications of the molecule. This should be used in ligand optimization stages such as hit-to-lead and lead-optimization. It reports a binding affinity value as `log(IC50)`, derived from an `IC50` measured in `μM`. More details on how to run affinity predictions and parse the output can be found in our [prediction instructions](docs/prediction.md).
+
+Boltz-2 supports binding affinity prediction for multiple interaction types:
+
+- **Protein-ligand interactions**: Predict binding affinities for small molecules binding to proteins
+- **Protein-protein interactions**: Predict binding affinities between protein chains
+- **Protein-nucleic acid interactions**: Predict binding affinities for protein-DNA and protein-RNA interactions
+
+The affinity module automatically detects the interaction type based on the specified binder. Simply provide the chain ID of the binder in the YAML file's `properties` section (see examples: `examples/affinity.yaml` for protein-ligand, `examples/affinity_prot_prot.yaml` for protein-protein).
+
+There are two main predictions in the affinity output: `affinity_pred_value` and `affinity_probability_binary`. They are trained on largely different datasets, with different supervisions, and should be used in different contexts. The `affinity_probability_binary` field should be used to detect binders from decoys, for example in a hit-discovery stage. Its value ranges from 0 to 1 and represents the predicted probability that the molecule is a binder. The `affinity_pred_value` aims to measure the specific affinity of different binders and how this changes with small modifications of the molecule. This should be used in optimization stages such as hit-to-lead and lead-optimization. It reports a binding affinity value as `log(IC50)`, derived from an `IC50` measured in `μM`. More details on how to run affinity predictions and parse the output can be found in our [prediction instructions](docs/prediction.md).
 
 ## Authentication to MSA Server
 

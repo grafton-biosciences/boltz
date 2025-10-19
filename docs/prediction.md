@@ -87,9 +87,14 @@ The `modifications` field is an optional field that allows you to specify modifi
 
 `templates` is an optional field that allows you to specify structural templates for your prediction. At minimum, you must provide the path to the structural template, which must provided as a CIF or PDB file. If you wish to explicitly define which of the chains in your YAML should be templated using this file, you can use the `chain_id` entry to specify them. If providing a PDB file, chain ids will be incrementally assigned to each subchain in a parent PDB chain resulting in template chain ids of A1, A2, B1, etc for PDB chains A and B. Make sure to look at the structure of the template PDB file to determine the corresponding value of `template_id` to provide. Whether a set of ids is provided or not, Boltz will find the best matching chains from the provided template. If you wish to explicitly define the mapping yourself, you may provide the corresponding template_id. Note that only protein chains can be templated.
 
-`properties` is an optional field that allows you to specify whether you want to compute the affinity. If enabled, you must also provide the chain_id corresponding to the small molecule against which the affinity will be computed. Only one single molecule can be specified for affinity computation, and it must be a ligand chain (not a protein, DNA or RNA).
+`properties` is an optional field that allows you to specify whether you want to compute the affinity. If enabled, you must also provide the chain_id corresponding to the binder molecule against which the affinity will be computed. The binder can be:
+- A small molecule ligand (for protein-ligand binding affinity)
+- A protein chain (for protein-protein binding affinity)
+- A DNA or RNA chain (for protein-nucleic acid binding affinity)
 
-As an example:
+The affinity module will automatically detect the interaction type based on the binder's molecular type.
+
+Example for protein-ligand complex:
 
 ```yaml
 version: 1
@@ -104,6 +109,25 @@ sequences:
   - ligand:
       id: [E, F]
       smiles: 'N[C@@H](Cc1ccc(O)cc1)C(=O)O'
+properties:
+  - affinity:
+      binder: E  # Predict affinity for ligand E
+```
+
+Example for protein-protein affinity:
+
+```yaml
+version: 1
+sequences:
+  - protein:
+      id: A
+      sequence: MAHHHHHHVAVDAVSFTLLQDQLQSVLDTLSEREAGVVRLRFGLTDGQPRTLDEIGQVYGVTRERIRQIESKTMSKLRHPSRSQVLRDYLDGSSGSGTPEERLLRAIFGEKA
+  - protein:
+      id: B
+      sequence: MRYAFAAEATTCNAFWRNVDMTVTALYEVPLGVCTQDPDRWTTTPDDEAKTLCRACPRRWLCARDAVESAGAEGLWAGVVIPESGRARAFALGQLRSLAERNGYPVRDHRVSAQSA
+properties:
+  - affinity:
+      binder: B  # Predict affinity for protein chain B binding to chain A
 ```
 
 
