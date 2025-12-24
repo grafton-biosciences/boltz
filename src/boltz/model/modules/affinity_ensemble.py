@@ -154,12 +154,12 @@ class EnsembleProteinAffinityModule():
         ensemble_size = min(num_binder_residues, self.max_ensemble_size)
         
         if self.ensemble_sampling_strategy == "all" or num_binder_residues <= ensemble_size:
-            return binder_indices
+            return binder_indices, None
         
         elif self.ensemble_sampling_strategy == "random":
             # Randomly sample residues
             selected_indices = torch.randperm(num_binder_residues)[:ensemble_size]
-            return binder_indices[selected_indices]
+            return binder_indices[selected_indices], None
         
         elif self.ensemble_sampling_strategy == "top_k":
             # Select residues based on distance to receptor center
@@ -169,7 +169,7 @@ class EnsembleProteinAffinityModule():
             if receptor_mask.sum() == 0:
                 # Fallback to random if no receptor found
                 selected_indices = torch.randperm(num_binder_residues)[:ensemble_size]
-                return binder_indices[selected_indices]
+                return binder_indices[selected_indices], None
             
             # Convert atom coordinates to token center coordinates
             token_to_rep_atom = feats["token_to_rep_atom"]
@@ -637,14 +637,10 @@ class EnsembleProteinAffinityModule():
         
         # Ensemble averaging
         if len(ensemble_predictions) > 0:
-            if ensemble_weights:
-                weights = self._compute_ensemble_weights(min_distances)
-            else:
-                weights = torch.ones(len(min_distances), device=min_distances.device) / len(min_distances)
 
             # Average predictions and probabilities (following original Boltz2 approach)
-            avg_prediction = (torch.stack(ensemble_predictions) * weights[:, None, None]).sum(dim=0)
-            avg_probability = (torch.stack(ensemble_probabilities) * weights[:, None, None]).sum(dim=0)
+            avg_prediction = (torch.stack(ensemble_predictions) / len(ensemble_predictions)).sum(dim=0)
+            avg_probability = (torch.stack(ensemble_probabilities) / len(ensemble_predictions)).sum(dim=0)
             # Convert averaged probability back to logits for consistency
             avg_logits = torch.logit(torch.clamp(avg_probability, min=1e-7, max=1-1e-7))
             

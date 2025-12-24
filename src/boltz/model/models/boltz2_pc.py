@@ -345,12 +345,12 @@ class Boltz2_pc(LightningModule):
         # Initialize protein-protein affinity modules
         if self.affinity_prediction:
             if self.affinity_ensemble:
-                with open("affinity_module1.pkl", "wb") as f:
-                    out_dict = {"token_s": token_s,
-                     "token_z": token_z, 
-                     "protein_ligand_mode": protein_ligand_mode, 
-                     "affinity_model_args1": affinity_model_args1}
-                    pickle.dump(out_dict, f)
+                #with open("affinity_module1.pkl", "wb") as f:
+                #    out_dict = {"token_s": token_s,
+                #     "token_z": token_z, 
+                #     "protein_ligand_mode": protein_ligand_mode, 
+                #     "affinity_model_args1": affinity_model_args1}
+                #    pickle.dump(out_dict, f)
 
                 # Use protein-protein affinity modules for ensemble
                 self.affinity_module1 = ProteinProteinAffinityModule(
@@ -359,6 +359,15 @@ class Boltz2_pc(LightningModule):
                     protein_ligand_mode,
                     **affinity_model_args1,
                 )
+
+
+                #with open("affinity_module2.pkl", "wb") as f:
+                #    out_dict = {"token_s": token_s,
+                #     "token_z": token_z, 
+                #     "protein_ligand_mode": protein_ligand_mode, 
+                #     "affinity_model_args2": affinity_model_args2}
+                #    pickle.dump(out_dict, f)
+
                 self.affinity_module2 = ProteinProteinAffinityModule(
                     token_s,
                     token_z,
@@ -685,14 +694,14 @@ class Boltz2_pc(LightningModule):
         # Run affinity prediction
         with torch.autocast("cuda", enabled=False):
             if self.affinity_ensemble:
-                with open("affinity_input_sample.pkl", "wb") as f:
-                    out_dict = {"s_inputs_affinity": s_inputs_affinity.detach(),
-                                "z_affinity": z_affinity.detach(),
-                                "coords_affinity": coords_affinity,
-                                "feats": feats,
-                                "multiplicity": 1,
-                                "use_kernels": self.use_kernels}
-                    pickle.dump(out_dict, f)
+                #with open("affinity_input_sample.pkl", "wb") as f:
+                #    out_dict = {"s_inputs_affinity": s_inputs_affinity.detach(),
+                #                "z_affinity": z_affinity.detach(),
+                #                "coords_affinity": coords_affinity,
+                #                "feats": feats,
+                #                "multiplicity": 1,
+                #                "use_kernels": self.use_kernels}
+                #    pickle.dump(out_dict, f)
                 # Ensemble prediction
                 dict_out_affinity1 = self.affinity_module1(
                     s_inputs=s_inputs_affinity.detach(),
@@ -1198,6 +1207,12 @@ class Boltz2_pc(LightningModule):
                     pred_dict["pae"] = out["pae"]
                     pred_dict["ptm"] = out["ptm"]
                     pred_dict["iptm"] = out["iptm"]
+                    
+                    argsort = torch.argsort(pred_dict["iptm"], descending=True)
+                    # Finding and saving the best iptm index
+                    best_idx = argsort[0].item()
+                    pred_dict["best_iptm_idx"] = best_idx
+                    
                     pred_dict["ligand_iptm"] = out["ligand_iptm"]
                     pred_dict["protein_iptm"] = out["protein_iptm"]
                     pred_dict["pair_chains_iptm"] = out["pair_chains_iptm"]
