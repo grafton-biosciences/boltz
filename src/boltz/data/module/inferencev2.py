@@ -354,6 +354,7 @@ class Boltz2InferenceDataModule(pl.LightningDataModule):
         extra_mols_dir: Optional[Path] = None,
         override_method: Optional[str] = None,
         affinity: bool = False,
+        batch_size: int = 1,
     ) -> None:
         """Initialize the DataModule.
 
@@ -377,6 +378,8 @@ class Boltz2InferenceDataModule(pl.LightningDataModule):
             The path to the extra molecules directory.
         override_method : Optional[str]
             The method to override.
+        batch_size : int
+            The batch size for the dataloader. Default is 1 (legacy mode).
 
         """
         super().__init__()
@@ -390,6 +393,7 @@ class Boltz2InferenceDataModule(pl.LightningDataModule):
         self.extra_mols_dir = extra_mols_dir
         self.override_method = override_method
         self.affinity = affinity
+        self.batch_size = batch_size
 
     def predict_dataloader(self) -> DataLoader:
         """Get the training dataloader.
@@ -413,7 +417,7 @@ class Boltz2InferenceDataModule(pl.LightningDataModule):
         )
         return DataLoader(
             dataset,
-            batch_size=1,
+            batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
             shuffle=False,
@@ -503,6 +507,7 @@ class Boltz2InferenceDataModule_pc(Boltz2InferenceDataModule):
         extra_mols_dir: Optional[Path] = None,
         override_method: Optional[str] = None,
         affinity: bool = False,
+        batch_size: int = 1,
     ) -> None:
         super().__init__(
             manifest=manifest,
@@ -515,6 +520,7 @@ class Boltz2InferenceDataModule_pc(Boltz2InferenceDataModule):
             extra_mols_dir=extra_mols_dir,
             override_method=override_method,
             affinity=affinity,
+            batch_size=batch_size,
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -531,7 +537,7 @@ class Boltz2InferenceDataModule_pc(Boltz2InferenceDataModule):
         )
         return DataLoader(
             dataset,
-            batch_size=1,
+            batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
             shuffle=False,

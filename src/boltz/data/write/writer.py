@@ -64,10 +64,15 @@ class BoltzWriter(BasePredictionWriter):
 
         # Get the records
         records: list[Record] = batch["record"]
+        batch_size = len(records)
 
         # Get the predictions
         coords = prediction["coords"]
-        coords = coords.unsqueeze(0)
+        # Reshape coords to [batch_size, diffusion_samples, atoms, 3]
+        # coords shape is [batch_size * diffusion_samples, atoms, 3]
+        total_samples = coords.shape[0]
+        diffusion_samples = total_samples // batch_size
+        coords = coords.view(batch_size, diffusion_samples, coords.shape[1], 3)
 
         pad_masks = prediction["masks"]
 

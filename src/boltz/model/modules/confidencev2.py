@@ -118,8 +118,69 @@ class ConfidenceModule(nn.Module):
         run_sequentially=False,
         use_kernels: bool = False,
     ):
+        batch_size = z.shape[0]
+        
         if run_sequentially and multiplicity > 1:
-            assert z.shape[0] == 1, "Not supported with batch size > 1"
+            # Handle batch_size > 1 by processing each input in the batch separately
+            if batch_size > 1:
+                # Process each batch item separately, then aggregate
+                batch_out_dicts = []
+                for batch_idx in range(batch_size):
+                    # Extract single-batch tensors
+                    s_inputs_single = s_inputs[batch_idx : batch_idx + 1]
+                    s_single = s[batch_idx : batch_idx + 1]
+                    z_single = z[batch_idx : batch_idx + 1]
+                    # x_pred has shape [batch_size * multiplicity, atoms, 3]
+                    # Extract samples for this batch item
+                    start_idx = batch_idx * multiplicity
+                    end_idx = start_idx + multiplicity
+                    x_pred_single = x_pred[start_idx:end_idx]
+                    
+                    # Extract single-batch feats
+                    feats_single = {}
+                    for key, val in feats.items():
+                        if isinstance(val, torch.Tensor) and val.shape[0] == batch_size:
+                            feats_single[key] = val[batch_idx : batch_idx + 1]
+                        else:
+                            feats_single[key] = val
+                    
+                    pred_distogram_logits_single = pred_distogram_logits[batch_idx : batch_idx + 1] if pred_distogram_logits is not None else None
+                    
+                    # Recursive call for single batch item
+                    single_out = self.forward(
+                        s_inputs_single,
+                        s_single,
+                        z_single,
+                        x_pred_single,
+                        feats_single,
+                        pred_distogram_logits_single,
+                        multiplicity=multiplicity,
+                        run_sequentially=True,
+                        use_kernels=use_kernels,
+                    )
+                    batch_out_dicts.append(single_out)
+                
+                # Aggregate results across batch
+                out_dict = {}
+                for key in batch_out_dicts[0]:
+                    if key != "pair_chains_iptm":
+                        out_dict[key] = torch.cat([out[key] for out in batch_out_dicts], dim=0)
+                    else:
+                        # For pair_chains_iptm, we need special handling
+                        # Each batch item has its own chain pair structure
+                        pair_chains_iptm = {}
+                        for chain_idx1 in batch_out_dicts[0][key]:
+                            chains_iptm = {}
+                            for chain_idx2 in batch_out_dicts[0][key][chain_idx1]:
+                                chains_iptm[chain_idx2] = torch.cat(
+                                    [out[key][chain_idx1][chain_idx2] for out in batch_out_dicts],
+                                    dim=0,
+                                )
+                            pair_chains_iptm[chain_idx1] = chains_iptm
+                        out_dict[key] = pair_chains_iptm
+                return out_dict
+            
+            # Legacy path: batch_size == 1
             out_dicts = []
             for sample_idx in range(multiplicity):
                 out_dicts.append(  # noqa: PERF401

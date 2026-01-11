@@ -1,4 +1,4 @@
-# started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
+ # started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
 
 from __future__ import annotations
 
@@ -301,6 +301,9 @@ class AtomDiffusion(Module):
         steering_args=None,
         **network_condition_kwargs,
     ):
+        # Get input batch size before any transformations
+        input_batch_size = atom_mask.shape[0]
+        
         if steering_args is not None and (
             steering_args["fk_steering"]
             or steering_args["physical_guidance_update"]
@@ -310,24 +313,34 @@ class AtomDiffusion(Module):
 
         if steering_args["fk_steering"]:
             multiplicity = multiplicity * steering_args["num_particles"]
-            energy_traj = torch.empty((multiplicity, 0), device=self.device)
-            resample_weights = torch.ones(multiplicity, device=self.device).reshape(
+            energy_traj = torch.empty((input_batch_size * multiplicity, 0), device=self.device)
+            resample_weights = torch.ones(input_batch_size * multiplicity, device=self.device).reshape(
                 -1, steering_args["num_particles"]
             )
+        
+        # Total samples = input_batch_size * multiplicity
+        total_samples = input_batch_size * multiplicity
+        
+        if max_parallel_samples is None:
+            max_parallel_samples = total_samples
+        
+        # For batch mode (input_batch_size > 1), disable chunking since features can't be easily sliced
+        # Chunking is only supported for batch_size=1 with multiplicity > max_parallel_samples
+        if input_batch_size > 1:
+            max_parallel_samples = total_samples
+
+        num_sampling_steps = default(num_sampling_steps, self.num_sampling_steps)
+        atom_mask = atom_mask.repeat_interleave(multiplicity, 0)
+
         if (
             steering_args["physical_guidance_update"]
             or steering_args["contact_guidance_update"]
         ):
             scaled_guidance_update = torch.zeros(
-                (multiplicity, *atom_mask.shape[1:], 3),
+                (total_samples, *atom_mask.shape[1:], 3),
                 dtype=torch.float32,
                 device=self.device,
             )
-        if max_parallel_samples is None:
-            max_parallel_samples = multiplicity
-
-        num_sampling_steps = default(num_sampling_steps, self.num_sampling_steps)
-        atom_mask = atom_mask.repeat_interleave(multiplicity, 0)
 
         shape = (*atom_mask.shape, 3)
 
@@ -349,7 +362,7 @@ class AtomDiffusion(Module):
         # gradually denoise
         for step_idx, (sigma_tm, sigma_t, gamma) in enumerate(sigmas_and_gammas):
             random_R, random_tr = compute_random_augmentation(
-                multiplicity, device=atom_coords.device, dtype=atom_coords.dtype
+                total_samples, device=atom_coords.device, dtype=atom_coords.dtype
             )
             atom_coords = atom_coords - atom_coords.mean(dim=-2, keepdims=True)
             atom_coords = (
@@ -379,17 +392,30 @@ class AtomDiffusion(Module):
 
             with torch.no_grad():
                 atom_coords_denoised = torch.zeros_like(atom_coords_noisy)
-                sample_ids = torch.arange(multiplicity).to(atom_coords_noisy.device)
-                sample_ids_chunks = sample_ids.chunk(
-                    multiplicity % max_parallel_samples + 1
-                )
+                sample_ids = torch.arange(total_samples).to(atom_coords_noisy.device)
+                # Calculate number of chunks: ceil(total_samples / max_parallel_samples)
+                num_chunks = (total_samples + max_parallel_samples - 1) // max_parallel_samples
+                sample_ids_chunks = sample_ids.chunk(num_chunks)
 
                 for sample_ids_chunk in sample_ids_chunks:
+                    chunk_size = sample_ids_chunk.numel()
+                    
+                    # Calculate effective multiplicity for the network
+                    # For batch mode (input_batch_size > 1), we process all samples together
+                    # so effective_multiplicity = multiplicity (the per-input multiplicity)
+                    # For legacy mode (input_batch_size = 1), chunk_size equals the number of samples
+                    if input_batch_size > 1:
+                        # Batch mode: features are already batched, use original multiplicity
+                        effective_multiplicity = multiplicity
+                    else:
+                        # Legacy mode: chunk_size is the effective multiplicity
+                        effective_multiplicity = chunk_size
+                    
                     atom_coords_denoised_chunk = self.preconditioned_network_forward(
                         atom_coords_noisy[sample_ids_chunk],
                         t_hat,
                         network_condition_kwargs=dict(
-                            multiplicity=sample_ids_chunk.numel(),
+                            multiplicity=effective_multiplicity,
                             **network_condition_kwargs,
                         ),
                     )
@@ -403,7 +429,7 @@ class AtomDiffusion(Module):
                     or step_idx == num_sampling_steps - 1
                 ):
                     # Compute energy of x_0 prediction
-                    energy = torch.zeros(multiplicity, device=self.device)
+                    energy = torch.zeros(total_samples, device=self.device)
                     for potential in potentials:
                         parameters = potential.compute_parameters(steering_t)
                         if parameters["resampling_weight"] > 0:

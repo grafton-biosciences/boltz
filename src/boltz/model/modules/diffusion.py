@@ -466,15 +466,15 @@ class AtomDiffusion(Module):
             resample_weights = torch.ones(multiplicity, device=self.device).reshape(
                 -1, steering_args["num_particles"]
             )
+        num_sampling_steps = default(num_sampling_steps, self.num_sampling_steps)
+        atom_mask = atom_mask.repeat_interleave(multiplicity, 0)
+
         if steering_args is not None and steering_args["physical_guidance_update"]:
             scaled_guidance_update = torch.zeros(
                 (multiplicity, *atom_mask.shape[1:], 3),
                 dtype=torch.float32,
                 device=self.device,
             )
-
-        num_sampling_steps = default(num_sampling_steps, self.num_sampling_steps)
-        atom_mask = atom_mask.repeat_interleave(multiplicity, 0)
 
         shape = (*atom_mask.shape, 3)
         token_repr_shape = (
@@ -534,9 +534,9 @@ class AtomDiffusion(Module):
                 token_a = torch.zeros(token_repr_shape).to(atom_coords_noisy)
 
                 sample_ids = torch.arange(multiplicity).to(atom_coords_noisy.device)
-                sample_ids_chunks = sample_ids.chunk(
-                    multiplicity % max_parallel_samples + 1
-                )
+                # Calculate number of chunks: ceil(multiplicity / max_parallel_samples)
+                num_chunks = (multiplicity + max_parallel_samples - 1) // max_parallel_samples
+                sample_ids_chunks = sample_ids.chunk(num_chunks)
                 for sample_ids_chunk in sample_ids_chunks:
                     atom_coords_denoised_chunk, token_a_chunk = (
                         self.preconditioned_network_forward(

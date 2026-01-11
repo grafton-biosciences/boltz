@@ -2,7 +2,14 @@ import multiprocessing
 import os
 import pickle
 import platform
+import re
+import shutil
+import subprocess
+import sys
 import tarfile
+import tempfile
+import threading
+import time
 import urllib.request
 import warnings
 from dataclasses import asdict, dataclass
@@ -870,6 +877,13 @@ def cli() -> None:
     default=1,
 )
 @click.option(
+    "--batch_size",
+    type=int,
+    help="Number of inputs to process in a single batch. Default is 1 (legacy mode). "
+         "Values > 1 enable experimental batch processing for higher throughput.",
+    default=1,
+)
+@click.option(
     "--max_parallel_samples",
     type=int,
     help="The maximum number of samples to predict in parallel. Default is None.",
@@ -1079,6 +1093,12 @@ def cli() -> None:
     is_flag=True,
     help=" to dump the s and z embeddings into a npz file. Default is False.",
 )
+@click.option(
+    "--parallel_processes",
+    type=int,
+    help="Number of parallel boltz processes to run. Input files will be split into this many groups, each processed by a separate process. Default is 1 (sequential processing).",
+    default=1,
+)
 def predict(  # noqa: C901, PLR0915, PLR0912
     data: str,
     out_dir: str,
@@ -1090,6 +1110,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     recycling_steps: int = 3,
     sampling_steps: int = 200,
     diffusion_samples: int = 1,
+    batch_size: int = 1,
     sampling_steps_affinity: int = 200,
     diffusion_samples_affinity: int = 3,
     max_parallel_samples: Optional[int] = None,
@@ -1122,6 +1143,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     max_ensemble_size: int = 20,
     min_ensemble_size: int = 5,
     process_yaml: bool = False,
+    parallel_processes: int = 1,
 ) -> None:
     """Run predictions with Boltz."""
     # If cpu, write a friendly warning
@@ -1179,6 +1201,171 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     out_dir = out_dir / f"boltz_results_{data.stem}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Handle parallel processing: split files into groups and run separate processes
+    # Only use multiprocessing if parallel_processes > 1; otherwise use legacy single-process mode
+    if parallel_processes > 1 and data.is_dir() and len(list(data.glob("*.yaml")) + list(data.glob("*.fasta")) + list(data.glob("*.fa"))) > 1:
+        # Get all input files from the directory
+        input_files = list(data.glob("*.yaml")) + list(data.glob("*.fasta")) + list(data.glob("*.fa"))
+        
+        if len(input_files) > 1:
+            # Split files into groups
+            num_files = len(input_files)
+            files_per_group = (num_files + parallel_processes - 1) // parallel_processes
+            file_groups = [
+                input_files[i:i + files_per_group] 
+                for i in range(0, num_files, files_per_group)
+            ]
+            
+            click.echo(f"Running {len(file_groups)} parallel processes for {num_files} input files...")
+            
+            # Create temporary directories for each group and spawn processes
+            processes = []
+            temp_dirs = []
+            
+            for group_idx, file_group in enumerate(file_groups):
+                # Create temp directory with symlinks to files in this group
+                temp_dir = tempfile.mkdtemp(prefix=f"boltz_group_{group_idx}_")
+                temp_dirs.append(temp_dir)
+                
+                for f in file_group:
+                    link_path = Path(temp_dir) / f.name
+                    link_path.symlink_to(f.resolve())
+                
+                # Build command for this group
+                cmd = [
+                    "boltz", "predict",
+                    temp_dir,
+                    "--out_dir", str(out_dir.parent),
+                    "--cache", str(cache),
+                    "--model", model,
+                    "--accelerator", accelerator,
+                    "--devices", str(devices),
+                    "--recycling_steps", str(recycling_steps),
+                    "--sampling_steps", str(sampling_steps),
+                    "--diffusion_samples", str(diffusion_samples),
+                    "--batch_size", str(batch_size),
+                    "--output_format", output_format,
+                    "--num_workers", str(num_workers),
+                    "--parallel_processes", "1",  # Each subprocess runs sequentially
+                ]
+                
+                if max_parallel_samples is not None:
+                    cmd.extend(["--max_parallel_samples", str(max_parallel_samples)])
+                if step_scale is not None:
+                    cmd.extend(["--step_scale", str(step_scale)])
+                if checkpoint is not None:
+                    cmd.extend(["--checkpoint", str(checkpoint)])
+                if override:
+                    cmd.append("--override")
+                if seed is not None:
+                    cmd.extend(["--seed", str(seed)])
+                if use_msa_server:
+                    cmd.append("--use_msa_server")
+                    cmd.extend(["--msa_server_url", msa_server_url])
+                if use_potentials:
+                    cmd.append("--use_potentials")
+                if write_full_pae:
+                    cmd.append("--write_full_pae")
+                if write_full_pde:
+                    cmd.append("--write_full_pde")
+                if atomic_affinity:
+                    cmd.append("--atomic_affinity")
+                if no_kernels:
+                    cmd.append("--no_kernels")
+                
+                # Start the process
+                click.echo(f"Starting process {group_idx + 1}/{len(file_groups)} with {len(file_group)} files")
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                processes.append((proc, group_idx, len(file_group)))
+            
+            # Track progress across all processes
+            completed_counts = {i: 0 for i in range(len(file_groups))}
+            process_done = {i: False for i in range(len(file_groups))}
+            total_files = num_files
+            lock = threading.Lock()
+            start_time = time.time()
+            last_total = 0
+            
+            def format_time(seconds):
+                """Format seconds into human readable string."""
+                if seconds < 60:
+                    return f"{int(seconds)}s"
+                elif seconds < 3600:
+                    mins = int(seconds // 60)
+                    secs = int(seconds % 60)
+                    return f"{mins}m {secs}s"
+                else:
+                    hours = int(seconds // 3600)
+                    mins = int((seconds % 3600) // 60)
+                    return f"{hours}h {mins}m"
+            
+            def monitor_process(proc, group_idx, group_size):
+                """Monitor a process's output and track completed files."""
+                nonlocal completed_counts, last_total
+                completed_pattern = re.compile(r"Predicting DataLoader.*?(\d+)/(\d+)")
+                
+                for line in proc.stdout:
+                    # Look for prediction progress patterns
+                    match = completed_pattern.search(line)
+                    if match:
+                        current = int(match.group(1))
+                        with lock:
+                            completed_counts[group_idx] = current
+                            total_done = sum(completed_counts.values())
+                            
+                            # Only update display if progress changed
+                            if total_done > last_total:
+                                last_total = total_done
+                                elapsed = time.time() - start_time
+                                
+                                if total_done > 0:
+                                    avg_time_per_file = elapsed / total_done
+                                    remaining_files = total_files - total_done
+                                    eta_seconds = avg_time_per_file * remaining_files
+                                    eta_str = format_time(eta_seconds)
+                                    elapsed_str = format_time(elapsed)
+                                    
+                                    progress_msg = f"\rProgress: {total_done}/{total_files} files | Elapsed: {elapsed_str} | ETA: {eta_str}    "
+                                else:
+                                    progress_msg = f"\rProgress: {total_done}/{total_files} files processed"
+                                
+                                click.echo(progress_msg, nl=False)
+                
+                proc.wait()
+                with lock:
+                    completed_counts[group_idx] = group_size
+                    process_done[group_idx] = True
+            
+            # Start monitoring threads
+            threads = []
+            for proc, group_idx, group_size in processes:
+                t = threading.Thread(target=monitor_process, args=(proc, group_idx, group_size))
+                t.start()
+                threads.append(t)
+            
+            # Wait for all threads to complete
+            for t in threads:
+                t.join()
+            
+            # Final summary
+            total_elapsed = time.time() - start_time
+            click.echo("")  # New line after progress
+            click.echo(f"Total time: {format_time(total_elapsed)} for {total_files} files ({total_elapsed/total_files:.1f}s per file)")
+            
+            # Check return codes
+            for proc, group_idx, _ in processes:
+                if proc.returncode != 0:
+                    click.echo(f"Process {group_idx + 1} failed with return code {proc.returncode}")
+                else:
+                    click.echo(f"Process {group_idx + 1} completed successfully")
+            
+            # Cleanup temp directories
+            for temp_dir in temp_dirs:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            click.echo(f"All {len(file_groups)} parallel processes completed.")
+            return
+    
     # Download necessary data and model
     if model == "boltz1":
         download_boltz1(cache)
@@ -1327,6 +1514,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 template_dir=processed.template_dir,
                 extra_mols_dir=processed.extra_mols_dir,
                 override_method=method,
+                batch_size=batch_size,
             )
         else:
             data_module = BoltzInferenceDataModule(
@@ -1335,6 +1523,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 msa_dir=processed.msa_dir,
                 num_workers=num_workers,
                 constraints_dir=processed.constraints_dir,
+                batch_size=batch_size,
             )
 
         # Load model
