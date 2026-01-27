@@ -246,7 +246,9 @@ class PredictionDataset(torch.utils.data.Dataset):
                     max_atoms=2048,
                 )
             except Exception as e:  # noqa: BLE001
-                print(f"Cropper failed on {record.id} with error {e}. Skipping.")  # noqa: T201
+                print(
+                    f"Cropper failed on {record.id} with error {e}. Skipping."
+                )  # noqa: T201
                 return self.__getitem__(0)
 
         # Load conformers
@@ -298,31 +300,34 @@ class PredictionDataset(torch.utils.data.Dataset):
             import traceback
 
             traceback.print_exc()
-            print(f"Featurizer failed on {record.id} with error {e}. Skipping.")  # noqa: T201
+            print(
+                f"Featurizer failed on {record.id} with error {e}. Skipping."
+            )  # noqa: T201
             return self.__getitem__(0)
 
         # Add record
         features["record"] = record
-        features["featurizer_args"] = {"data": tokenized,
-                                        "molecules": molecules,
-                                        "random": random,
-                                        "training": False,
-                                        "max_atoms": None,
-                                        "max_tokens": None,
-                                        "max_seqs": const.max_msa_seqs,
-                                        "pad_to_max_seqs": False,
-                                        "single_sequence_prop": 0.0,
-                                        "compute_frames": True,
-                                        "inference_pocket_constraints": pocket_constraints,
-                                        "inference_contact_constraints": contact_constraints,
-                                        "compute_constraint_features": True,
-                                        "override_method": self.override_method,
-                                        "compute_affinity": self.affinity,
+        features["featurizer_args"] = {
+            "data": tokenized,
+            "molecules": molecules,
+            "random": random,
+            "training": False,
+            "max_atoms": None,
+            "max_tokens": None,
+            "max_seqs": const.max_msa_seqs,
+            "pad_to_max_seqs": False,
+            "single_sequence_prop": 0.0,
+            "compute_frames": True,
+            "inference_pocket_constraints": pocket_constraints,
+            "inference_contact_constraints": contact_constraints,
+            "compute_constraint_features": True,
+            "override_method": self.override_method,
+            "compute_affinity": self.affinity,
         }
 
-        #import pickle
-        #file_path = 'features.pkl'
-        #with open(file_path, 'wb') as file:
+        # import pickle
+        # file_path = 'features.pkl'
+        # with open(file_path, 'wb') as file:
         #    pickle.dump(features, file)
 
         return features
@@ -491,6 +496,7 @@ class PredictionDataset_pc(PredictionDataset):
         )
         self.featurizer = ProteinProteinFeaturizer()
         self.cropper = ProteinProteinAffinityCropper()
+
 
 class Boltz2InferenceDataModule_pc(Boltz2InferenceDataModule):
     """DataModule for Boltz2 inference."""

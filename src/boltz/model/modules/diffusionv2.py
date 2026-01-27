@@ -1,4 +1,4 @@
- # started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
+# started from code from https://github.com/lucidrains/alphafold3-pytorch, MIT License, Copyright (c) 2024 Phil Wang
 
 from __future__ import annotations
 
@@ -303,7 +303,7 @@ class AtomDiffusion(Module):
     ):
         # Get input batch size before any transformations
         input_batch_size = atom_mask.shape[0]
-        
+
         if steering_args is not None and (
             steering_args["fk_steering"]
             or steering_args["physical_guidance_update"]
@@ -313,17 +313,19 @@ class AtomDiffusion(Module):
 
         if steering_args["fk_steering"]:
             multiplicity = multiplicity * steering_args["num_particles"]
-            energy_traj = torch.empty((input_batch_size * multiplicity, 0), device=self.device)
-            resample_weights = torch.ones(input_batch_size * multiplicity, device=self.device).reshape(
-                -1, steering_args["num_particles"]
+            energy_traj = torch.empty(
+                (input_batch_size * multiplicity, 0), device=self.device
             )
-        
+            resample_weights = torch.ones(
+                input_batch_size * multiplicity, device=self.device
+            ).reshape(-1, steering_args["num_particles"])
+
         # Total samples = input_batch_size * multiplicity
         total_samples = input_batch_size * multiplicity
-        
+
         if max_parallel_samples is None:
             max_parallel_samples = total_samples
-        
+
         # For batch mode (input_batch_size > 1), disable chunking since features can't be easily sliced
         # Chunking is only supported for batch_size=1 with multiplicity > max_parallel_samples
         if input_batch_size > 1:
@@ -394,12 +396,14 @@ class AtomDiffusion(Module):
                 atom_coords_denoised = torch.zeros_like(atom_coords_noisy)
                 sample_ids = torch.arange(total_samples).to(atom_coords_noisy.device)
                 # Calculate number of chunks: ceil(total_samples / max_parallel_samples)
-                num_chunks = (total_samples + max_parallel_samples - 1) // max_parallel_samples
+                num_chunks = (
+                    total_samples + max_parallel_samples - 1
+                ) // max_parallel_samples
                 sample_ids_chunks = sample_ids.chunk(num_chunks)
 
                 for sample_ids_chunk in sample_ids_chunks:
                     chunk_size = sample_ids_chunk.numel()
-                    
+
                     # Calculate effective multiplicity for the network
                     # For batch mode (input_batch_size > 1), we process all samples together
                     # so effective_multiplicity = multiplicity (the per-input multiplicity)
@@ -410,7 +414,7 @@ class AtomDiffusion(Module):
                     else:
                         # Legacy mode: chunk_size is the effective multiplicity
                         effective_multiplicity = chunk_size
-                    
+
                     atom_coords_denoised_chunk = self.preconditioned_network_forward(
                         atom_coords_noisy[sample_ids_chunk],
                         t_hat,
@@ -508,9 +512,11 @@ class AtomDiffusion(Module):
                     resample_indices = (
                         torch.multinomial(
                             resample_weights,
-                            resample_weights.shape[1]
-                            if step_idx < num_sampling_steps - 1
-                            else 1,
+                            (
+                                resample_weights.shape[1]
+                                if step_idx < num_sampling_steps - 1
+                                else 1
+                            ),
                             replacement=True,
                         )
                         + resample_weights.shape[1]
@@ -640,7 +646,9 @@ class AtomDiffusion(Module):
                 multiplicity, 0
             )
 
-            align_weights = denoised_atom_coords.new_ones(denoised_atom_coords.shape[:2])
+            align_weights = denoised_atom_coords.new_ones(
+                denoised_atom_coords.shape[:2]
+            )
             atom_type = (
                 torch.bmm(
                     feats["atom_to_token"].float(),

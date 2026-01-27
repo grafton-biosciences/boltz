@@ -57,9 +57,11 @@ def randomly_rotate(coords, return_second_coords=False, second_coords=None):
     R = random_rotations(len(coords), coords.dtype, coords.device)
 
     if return_second_coords:
-        return torch.einsum("bmd,bds->bms", coords, R), torch.einsum(
-            "bmd,bds->bms", second_coords, R
-        ) if second_coords is not None else None
+        return torch.einsum("bmd,bds->bms", coords, R), (
+            torch.einsum("bmd,bds->bms", second_coords, R)
+            if second_coords is not None
+            else None
+        )
 
     return torch.einsum("bmd,bds->bms", coords, R)
 

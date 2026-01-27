@@ -1093,7 +1093,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     is_msa_auto = False
     ligand_id = 1
     # If present, flatten binder chain names into a single set
-    binder_chain_names = set(affinity_ligand_groups[0]) if len(affinity_ligand_groups) == 1 else set()
+    binder_chain_names = (
+        set(affinity_ligand_groups[0]) if len(affinity_ligand_groups) == 1 else set()
+    )
 
     for entity_id, items in enumerate(items_to_group.values()):
         # Get entity type and sequence
@@ -1231,9 +1233,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 affinity_mw=affinity_mw,
             )
 
-            assert not items[0][entity_type].get("cyclic", False), (
-                "Cyclic flag is not supported for ligands"
-            )
+            assert not items[0][entity_type].get(
+                "cyclic", False
+            ), "Cyclic flag is not supported for ligands"
 
         elif (entity_type == "ligand") and ("smiles" in items[0][entity_type]):
             seq = items[0][entity_type]["smiles"]
@@ -1282,9 +1284,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
                 affinity_mw=affinity_mw,
             )
 
-            assert not items[0][entity_type].get("cyclic", False), (
-                "Cyclic flag is not supported for ligands"
-            )
+            assert not items[0][entity_type].get(
+                "cyclic", False
+            ), "Cyclic flag is not supported for ligands"
 
         else:
             msg = f"Invalid entity type: {entity_type}"
@@ -1650,20 +1652,17 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         if template_chain_ids is not None and not isinstance(template_chain_ids, list):
             template_chain_ids = [template_chain_ids]
 
-        if (
-            template_chain_ids is not None
-            and chain_ids is not None
-        ):
-           
-                if len(template_chain_ids) == len(chain_ids):
-                     if len(template_chain_ids) > 0 and len(chain_ids) > 0:
-                        matched = True
-                else:
-                    msg = (
-                        "When providing both the chain_id and template_id, the number of"
-                        "template_ids provided must match the number of chain_ids!"
-                    )
-                    raise ValueError(msg)
+        if template_chain_ids is not None and chain_ids is not None:
+
+            if len(template_chain_ids) == len(chain_ids):
+                if len(template_chain_ids) > 0 and len(chain_ids) > 0:
+                    matched = True
+            else:
+                msg = (
+                    "When providing both the chain_id and template_id, the number of"
+                    "template_ids provided must match the number of chain_ids!"
+                )
+                raise ValueError(msg)
 
         # Get relevant chains ids
         if chain_ids is None:

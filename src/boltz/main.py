@@ -28,7 +28,10 @@ from tqdm import tqdm
 
 from boltz.data import const
 from boltz.data.module.inference import BoltzInferenceDataModule
-from boltz.data.module.inferencev2 import Boltz2InferenceDataModule, Boltz2InferenceDataModule_pc
+from boltz.data.module.inferencev2 import (
+    Boltz2InferenceDataModule,
+    Boltz2InferenceDataModule_pc,
+)
 from boltz.data.mol import load_canonicals
 from boltz.data.msa.mmseqs2 import run_mmseqs2
 from boltz.data.parse.a3m import parse_a3m
@@ -459,22 +462,19 @@ def compute_msa(
     click.echo(f"Calling MSA server for target {target_id} with {len(data)} sequences")
     click.echo(f"MSA server URL: {msa_server_url}")
     click.echo(f"MSA pairing strategy: {msa_pairing_strategy}")
-    
+
     # Construct auth headers if API key header/value is provided
     auth_headers = None
     if api_key_value:
         key = api_key_header if api_key_header else "X-API-Key"
         value = api_key_value
-        auth_headers = {
-            "Content-Type": "application/json",
-            key: value
-        }
+        auth_headers = {"Content-Type": "application/json", key: value}
         click.echo(f"Using API key authentication for MSA server (header: {key})")
     elif msa_server_username and msa_server_password:
         click.echo("Using basic authentication for MSA server")
     else:
         click.echo("No authentication provided for MSA server")
-    
+
     if len(data) > 1:
         paired_msas = run_mmseqs2(
             list(data.values()),
@@ -723,7 +723,7 @@ def process_inputs(
     # Validate mutually exclusive authentication methods
     has_basic_auth = msa_server_username and msa_server_password
     has_api_key = api_key_value is not None
-    
+
     if has_basic_auth and has_api_key:
         raise ValueError(
             "Cannot use both basic authentication (--msa_server_username/--msa_server_password) "
@@ -880,7 +880,7 @@ def cli() -> None:
     "--batch_size",
     type=int,
     help="Number of inputs to process in a single batch. Default is 1 (legacy mode). "
-         "Values > 1 enable experimental batch processing for higher throughput.",
+    "Values > 1 enable experimental batch processing for higher throughput.",
     default=1,
 )
 @click.option(
@@ -986,50 +986,39 @@ def cli() -> None:
     is_flag=True,
     help="Whether to use potentials for steering. Default is False.",
 )
-
 @click.option(
     "--model",
     default="boltz2",
     type=click.Choice(["boltz1", "boltz2", "boltz2_pc", "boltz2_ensemble"]),
     help="The model to use for prediction. Default is boltz2.",
 )
-
-
-
 @click.option(
     "--protein_ligand_mode",
     is_flag=True,
     help="Whether to use protein protein module for binding affinity predictions. Default is False.",
 )
-
 @click.option(
     "--atomic_affinity",
     is_flag=True,
     help="Whether to use per residue atomic tokenization for binding affinity predictions. Default is False.",
 )
-
 @click.option(
     "--max_ensemble_size",
     type=int,
     help="The maximum number of residues to include in the ensemble. Default is 20.",
     default=20,
 )
-
 @click.option(
     "--min_ensemble_size",
     type=int,
     help="The minimum number of residues to include in the ensemble. Default is 5.",
     default=5,
 )
-
-
-
 @click.option(
     "--process_yaml",
     is_flag=True,
     help="Whether to stop after yaml processing. Default is False.",
 )
-
 @click.option(
     "--method",
     type=str,
@@ -1186,7 +1175,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             msa_server_password = os.environ.get("BOLTZ_MSA_PASSWORD")
         if api_key_value is None:
             api_key_value = os.environ.get("MSA_API_KEY_VALUE")
-        
+
         click.echo(f"MSA server enabled: {msa_server_url}")
         if api_key_value:
             click.echo("MSA server authentication: using API key header")
@@ -1203,52 +1192,80 @@ def predict(  # noqa: C901, PLR0915, PLR0912
 
     # Handle parallel processing: split files into groups and run separate processes
     # Only use multiprocessing if parallel_processes > 1; otherwise use legacy single-process mode
-    if parallel_processes > 1 and data.is_dir() and len(list(data.glob("*.yaml")) + list(data.glob("*.fasta")) + list(data.glob("*.fa"))) > 1:
+    if (
+        parallel_processes > 1
+        and data.is_dir()
+        and len(
+            list(data.glob("*.yaml"))
+            + list(data.glob("*.fasta"))
+            + list(data.glob("*.fa"))
+        )
+        > 1
+    ):
         # Get all input files from the directory
-        input_files = list(data.glob("*.yaml")) + list(data.glob("*.fasta")) + list(data.glob("*.fa"))
-        
+        input_files = (
+            list(data.glob("*.yaml"))
+            + list(data.glob("*.fasta"))
+            + list(data.glob("*.fa"))
+        )
+
         if len(input_files) > 1:
             # Split files into groups
             num_files = len(input_files)
             files_per_group = (num_files + parallel_processes - 1) // parallel_processes
             file_groups = [
-                input_files[i:i + files_per_group] 
+                input_files[i : i + files_per_group]
                 for i in range(0, num_files, files_per_group)
             ]
-            
-            click.echo(f"Running {len(file_groups)} parallel processes for {num_files} input files...")
-            
+
+            click.echo(
+                f"Running {len(file_groups)} parallel processes for {num_files} input files..."
+            )
+
             # Create temporary directories for each group and spawn processes
             processes = []
             temp_dirs = []
-            
+
             for group_idx, file_group in enumerate(file_groups):
                 # Create temp directory with symlinks to files in this group
                 temp_dir = tempfile.mkdtemp(prefix=f"boltz_group_{group_idx}_")
                 temp_dirs.append(temp_dir)
-                
+
                 for f in file_group:
                     link_path = Path(temp_dir) / f.name
                     link_path.symlink_to(f.resolve())
-                
+
                 # Build command for this group
                 cmd = [
-                    "boltz", "predict",
+                    "boltz",
+                    "predict",
                     temp_dir,
-                    "--out_dir", str(out_dir.parent),
-                    "--cache", str(cache),
-                    "--model", model,
-                    "--accelerator", accelerator,
-                    "--devices", str(devices),
-                    "--recycling_steps", str(recycling_steps),
-                    "--sampling_steps", str(sampling_steps),
-                    "--diffusion_samples", str(diffusion_samples),
-                    "--batch_size", str(batch_size),
-                    "--output_format", output_format,
-                    "--num_workers", str(num_workers),
-                    "--parallel_processes", "1",  # Each subprocess runs sequentially
+                    "--out_dir",
+                    str(out_dir.parent),
+                    "--cache",
+                    str(cache),
+                    "--model",
+                    model,
+                    "--accelerator",
+                    accelerator,
+                    "--devices",
+                    str(devices),
+                    "--recycling_steps",
+                    str(recycling_steps),
+                    "--sampling_steps",
+                    str(sampling_steps),
+                    "--diffusion_samples",
+                    str(diffusion_samples),
+                    "--batch_size",
+                    str(batch_size),
+                    "--output_format",
+                    output_format,
+                    "--num_workers",
+                    str(num_workers),
+                    "--parallel_processes",
+                    "1",  # Each subprocess runs sequentially
                 ]
-                
+
                 if max_parallel_samples is not None:
                     cmd.extend(["--max_parallel_samples", str(max_parallel_samples)])
                 if step_scale is not None:
@@ -1272,12 +1289,20 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                     cmd.append("--atomic_affinity")
                 if no_kernels:
                     cmd.append("--no_kernels")
-                
+
                 # Start the process
-                click.echo(f"Starting process {group_idx + 1}/{len(file_groups)} with {len(file_group)} files")
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                click.echo(
+                    f"Starting process {group_idx + 1}/{len(file_groups)} with {len(file_group)} files"
+                )
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
                 processes.append((proc, group_idx, len(file_group)))
-            
+
             # Track progress across all processes
             completed_counts = {i: 0 for i in range(len(file_groups))}
             process_done = {i: False for i in range(len(file_groups))}
@@ -1285,7 +1310,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             lock = threading.Lock()
             start_time = time.time()
             last_total = 0
-            
+
             def format_time(seconds):
                 """Format seconds into human readable string."""
                 if seconds < 60:
@@ -1298,12 +1323,12 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                     hours = int(seconds // 3600)
                     mins = int((seconds % 3600) // 60)
                     return f"{hours}h {mins}m"
-            
+
             def monitor_process(proc, group_idx, group_size):
                 """Monitor a process's output and track completed files."""
                 nonlocal completed_counts, last_total
                 completed_pattern = re.compile(r"Predicting DataLoader.*?(\d+)/(\d+)")
-                
+
                 for line in proc.stdout:
                     # Look for prediction progress patterns
                     match = completed_pattern.search(line)
@@ -1312,60 +1337,66 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                         with lock:
                             completed_counts[group_idx] = current
                             total_done = sum(completed_counts.values())
-                            
+
                             # Only update display if progress changed
                             if total_done > last_total:
                                 last_total = total_done
                                 elapsed = time.time() - start_time
-                                
+
                                 if total_done > 0:
                                     avg_time_per_file = elapsed / total_done
                                     remaining_files = total_files - total_done
                                     eta_seconds = avg_time_per_file * remaining_files
                                     eta_str = format_time(eta_seconds)
                                     elapsed_str = format_time(elapsed)
-                                    
+
                                     progress_msg = f"\rProgress: {total_done}/{total_files} files | Elapsed: {elapsed_str} | ETA: {eta_str}    "
                                 else:
                                     progress_msg = f"\rProgress: {total_done}/{total_files} files processed"
-                                
+
                                 click.echo(progress_msg, nl=False)
-                
+
                 proc.wait()
                 with lock:
                     completed_counts[group_idx] = group_size
                     process_done[group_idx] = True
-            
+
             # Start monitoring threads
             threads = []
             for proc, group_idx, group_size in processes:
-                t = threading.Thread(target=monitor_process, args=(proc, group_idx, group_size))
+                t = threading.Thread(
+                    target=monitor_process, args=(proc, group_idx, group_size)
+                )
                 t.start()
                 threads.append(t)
-            
+
             # Wait for all threads to complete
             for t in threads:
                 t.join()
-            
+
             # Final summary
             total_elapsed = time.time() - start_time
             click.echo("")  # New line after progress
-            click.echo(f"Total time: {format_time(total_elapsed)} for {total_files} files ({total_elapsed/total_files:.1f}s per file)")
-            
+            click.echo(
+                f"Total time: {format_time(total_elapsed)} for {total_files} files ({total_elapsed/total_files:.1f}s per file)"
+            )
+
             # Check return codes
             for proc, group_idx, _ in processes:
                 if proc.returncode != 0:
-                    click.echo(f"Process {group_idx + 1} failed with return code {proc.returncode}")
+                    click.echo(
+                        f"Process {group_idx + 1} failed with return code {proc.returncode}"
+                    )
                 else:
                     click.echo(f"Process {group_idx + 1} completed successfully")
-            
+
             # Cleanup temp directories
             for temp_dir in temp_dirs:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-            
+
             click.echo(f"All {len(file_groups)} parallel processes completed.")
             return
-    
+
     # Download necessary data and model
     if model == "boltz1":
         download_boltz1(cache)
@@ -1407,9 +1438,9 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         preprocessing_threads=preprocessing_threads,
         max_msa_seqs=max_msa_seqs,
     )
-    
+
     if process_yaml:
-        return 
+        return
 
     # Load manifest
     manifest = Manifest.load(out_dir / "processed" / "manifest.json")
@@ -1447,7 +1478,11 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     if (isinstance(devices, int) and devices > 1) or (
         isinstance(devices, list) and len(devices) > 1
     ):
-        start_method = "fork" if platform.system() != "win32" and platform.system() != "Windows" else "spawn"
+        start_method = (
+            "fork"
+            if platform.system() != "win32" and platform.system() != "Windows"
+            else "spawn"
+        )
         strategy = DDPStrategy(start_method=start_method)
         if len(filtered_manifest.records) < devices:
             msg = (
@@ -1475,7 +1510,9 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     msa_args = MSAModuleArgs(
         subsample_msa=subsample_msa,
         num_subsampled_msa=num_subsampled_msa,
-        use_paired_feature=model == "boltz2" or model == "boltz2_pc" or model == "boltz2_ensemble",
+        use_paired_feature=model == "boltz2"
+        or model == "boltz2_pc"
+        or model == "boltz2_ensemble",
     )
 
     # Create prediction writer
@@ -1548,14 +1585,14 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         steering_args.physical_guidance_update = use_potentials
 
         if model == "boltz2":
-            model_cls = Boltz2 
+            model_cls = Boltz2
         if model == "boltz1":
             model_cls = Boltz1
         if model == "boltz2_pc":
             model_cls = Boltz2_pc
         if model == "boltz2_ensemble":
             model_cls = Boltz2Ensemble
-            
+
         model_module = model_cls.load_from_checkpoint(
             checkpoint,
             strict=True,
@@ -1614,7 +1651,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 override_method="other",
                 affinity=True,
             )
-        elif model == 'boltz2_pc' or model == 'boltz2_ensemble':
+        elif model == "boltz2_pc" or model == "boltz2_ensemble":
             data_module = Boltz2InferenceDataModule_pc(
                 manifest=manifest_filtered,
                 target_dir=out_dir / "predictions",
@@ -1672,7 +1709,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 msa_args=asdict(msa_args),
                 steering_args=asdict(steering_args),
                 affinity_mw_correction=affinity_mw_correction,
-                protein_ligand_mode = protein_ligand_mode,
+                protein_ligand_mode=protein_ligand_mode,
             )
 
         if model == "boltz2_ensemble":
@@ -1687,10 +1724,10 @@ def predict(  # noqa: C901, PLR0915, PLR0912
                 msa_args=asdict(msa_args),
                 steering_args=asdict(steering_args),
                 affinity_mw_correction=affinity_mw_correction,
-                atomic_affinity = atomic_affinity,
-                max_ensemble_size = max_ensemble_size,
-                min_ensemble_size = min_ensemble_size,
-                mol_dir = mol_dir,
+                atomic_affinity=atomic_affinity,
+                max_ensemble_size=max_ensemble_size,
+                min_ensemble_size=min_ensemble_size,
+                mol_dir=mol_dir,
                 run_trunk_and_structure=True,  # Skip trunk and structure computation for affinity
             )
         model_module.eval()

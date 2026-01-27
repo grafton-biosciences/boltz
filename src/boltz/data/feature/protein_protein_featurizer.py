@@ -13,9 +13,9 @@ from boltz.data.types import Tokenized
 class ProteinProteinFeaturizer(Boltz2Featurizer):
     """
     Featurizer for protein-protein complexes that extends Boltz2Featurizer.
-    
+
     This class handles protein-protein binding problems for affinity prediction
-    by creating appropriate masks and features while leveraging the full 
+    by creating appropriate masks and features while leveraging the full
     functionality of the parent Boltz2Featurizer.
     """
 
@@ -24,17 +24,17 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
         super().__init__()
 
     def _identify_protein_chains(
-        self, 
+        self,
         data: Tokenized,
     ) -> Tuple[List[int], List[int]]:
         """
         Identify receptor and binder chains using schema-defined affinity_mask.
-        
+
         Parameters
         ----------
         data : Tokenized
             The input data with affinity_mask already set during tokenization.
-            
+
         Returns
         -------
         Tuple[List[int], List[int]]
@@ -42,17 +42,21 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
         """
         receptor_chains = []
         binder_chains = []
-        
+
         # Use the affinity_mask from schema to identify chains
         for token in data.tokens:
             chain_id = token["asym_id"]
             mol_type = token["mol_type"]
             is_protein = mol_type == const.chain_type_ids["PROTEIN"]
-            is_polymer_binder = mol_type in (
-                const.chain_type_ids["PROTEIN"],
-                const.chain_type_ids["DNA"],
-                const.chain_type_ids["RNA"],
-            ) and token["affinity_mask"]
+            is_polymer_binder = (
+                mol_type
+                in (
+                    const.chain_type_ids["PROTEIN"],
+                    const.chain_type_ids["DNA"],
+                    const.chain_type_ids["RNA"],
+                )
+                and token["affinity_mask"]
+            )
 
             if is_polymer_binder:
                 if chain_id not in binder_chains:
@@ -60,11 +64,11 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             elif is_protein:
                 if chain_id not in receptor_chains:
                     receptor_chains.append(chain_id)
-        
+
         return receptor_chains, binder_chains
 
     def _create_protein_protein_masks(
-        self, 
+        self,
         data: Tokenized,
         receptor_chain_ids: List[int],
         binder_chain_ids: List[int],
@@ -72,7 +76,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
     ) -> Dict[str, Tensor]:
         """
         Create receptor, binder, and interface masks for protein-protein complexes.
-        
+
         Parameters
         ----------
         data : Tokenized
@@ -83,52 +87,67 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             Chain IDs for the binder protein(s).
         max_tokens : int, optional
             Maximum number of tokens for padding.
-            
+
         Returns
         -------
         Dict[str, Tensor]
             Dictionary containing receptor_mask, binder_mask, and interface_mask.
         """
         num_tokens = len(data.tokens)
-        
+
         # Initialize masks
         receptor_mask = torch.zeros(num_tokens, dtype=torch.bool)
         binder_mask = torch.zeros(num_tokens, dtype=torch.bool)
-        
+
         # Fill masks based on chain assignments
         for i, token in enumerate(data.tokens):
             if token["asym_id"] in receptor_chain_ids:
                 receptor_mask[i] = True
             elif token["asym_id"] in binder_chain_ids:
                 binder_mask[i] = True
-        
+
         # Create interface mask (receptor-binder interactions)
         interface_mask = torch.zeros(num_tokens, num_tokens, dtype=torch.bool)
-        
+
         # Mark receptor-binder pairs in interface
         for i in range(num_tokens):
             for j in range(num_tokens):
-                if (receptor_mask[i] and binder_mask[j]) or (binder_mask[i] and receptor_mask[j]):
+                if (receptor_mask[i] and binder_mask[j]) or (
+                    binder_mask[i] and receptor_mask[j]
+                ):
                     interface_mask[i, j] = True
-        
+
         # Add binder-binder interactions for binding site analysis
         for i in range(num_tokens):
             for j in range(num_tokens):
                 if binder_mask[i] and binder_mask[j]:
                     interface_mask[i, j] = True
-        
+
         # Pad if needed
         if max_tokens is not None and num_tokens < max_tokens:
             pad_len = max_tokens - num_tokens
-            receptor_mask = torch.cat([receptor_mask, torch.zeros(pad_len, dtype=torch.bool)])
-            binder_mask = torch.cat([binder_mask, torch.zeros(pad_len, dtype=torch.bool)])
-            
+            receptor_mask = torch.cat(
+                [receptor_mask, torch.zeros(pad_len, dtype=torch.bool)]
+            )
+            binder_mask = torch.cat(
+                [binder_mask, torch.zeros(pad_len, dtype=torch.bool)]
+            )
+
             # Pad interface mask
-            interface_mask = torch.cat([
-                torch.cat([interface_mask, torch.zeros(num_tokens, pad_len, dtype=torch.bool)], dim=1),
-                torch.zeros(pad_len, max_tokens, dtype=torch.bool)
-            ], dim=0)
-        
+            interface_mask = torch.cat(
+                [
+                    torch.cat(
+                        [
+                            interface_mask,
+                            torch.zeros(num_tokens, pad_len, dtype=torch.bool),
+                        ],
+                        dim=1,
+                    ),
+                    torch.zeros(pad_len, max_tokens, dtype=torch.bool),
+                ],
+                dim=0,
+            )
+
         return {
             "receptor_mask": receptor_mask,
             "binder_mask": binder_mask,
@@ -143,7 +162,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
     ) -> Dict[str, Tensor]:
         """
         Compute protein-protein specific features.
-        
+
         Parameters
         ----------
         data : Tokenized
@@ -152,18 +171,18 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             Chain IDs for the receptor protein(s).
         binder_chain_ids : List[int]
             Chain IDs for the binder protein(s).
-            
+
         Returns
         -------
         Dict[str, Tensor]
             Protein-protein specific features.
         """
         features = {}
-        
+
         # Chain type information
         num_tokens = len(data.tokens)
         chain_type = torch.zeros(num_tokens, dtype=torch.long)
-        
+
         for i, token in enumerate(data.tokens):
             if token["asym_id"] in receptor_chain_ids:
                 chain_type[i] = 0  # Receptor
@@ -171,26 +190,32 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
                 chain_type[i] = 1  # Binder
             else:
                 chain_type[i] = 2  # Other
-        
+
         features["protein_chain_type"] = chain_type
-        
+
         # Compute approximate molecular weights for affinity scaling
-        receptor_tokens = sum(1 for token in data.tokens if token["asym_id"] in receptor_chain_ids)
-        binder_tokens = sum(1 for token in data.tokens if token["asym_id"] in binder_chain_ids)
-        
+        receptor_tokens = sum(
+            1 for token in data.tokens if token["asym_id"] in receptor_chain_ids
+        )
+        binder_tokens = sum(
+            1 for token in data.tokens if token["asym_id"] in binder_chain_ids
+        )
+
         # Approximate MW calculation (assuming ~110 Da per residue with removed hydrogens                           )
         receptor_mw = receptor_tokens * 100.0
         binder_mw = binder_tokens * 100.0
-        
+
         features["receptor_mw"] = torch.tensor(receptor_mw, dtype=torch.float)
         features["binder_mw"] = torch.tensor(binder_mw, dtype=torch.float)
-        
+
         features["affinity_mw"] = torch.tensor(100.0, dtype=torch.float)
 
         # Complex size features for affinity normalization
         total_interface_size = receptor_tokens + binder_tokens
-        features["interface_size"] = torch.tensor(total_interface_size, dtype=torch.float)
-        
+        features["interface_size"] = torch.tensor(
+            total_interface_size, dtype=torch.float
+        )
+
         return features
 
     def process(
@@ -200,7 +225,6 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
         molecules: dict[str, Mol],
         training: bool,
         max_seqs: int,
-
         atoms_per_window_queries: int = 32,
         min_dist: float = 2.0,
         max_dist: float = 22.0,
@@ -239,10 +263,10 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
     ) -> dict[str, Tensor]:
         """
         Process protein-protein complex data into features for affinity prediction.
-        
+
         This method extends the parent process method to handle protein-protein
         specific features while maintaining all the functionality of the base class.
-        
+
         Parameters
         ----------
         data : Tokenized
@@ -258,7 +282,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
 
         **kwargs
             Additional arguments passed to parent process method.
-            
+
         Returns
         -------
         dict[str, Tensor]
@@ -266,7 +290,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
         """
         # Identify receptor and binder chains using schema-defined affinity_mask
         receptor_chains, binder_chains = self._identify_protein_chains(data)
-        
+
         # Call parent process method with protein-protein specific settings
         features = super().process(
             data=data,
@@ -304,26 +328,26 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             inference_pocket_constraints=inference_pocket_constraints,
             inference_contact_constraints=inference_contact_constraints,
             compute_affinity=compute_affinity,
-            **kwargs
+            **kwargs,
         )
-        
+
         # Add protein-protein specific masks
         protein_masks = self._create_protein_protein_masks(
             data, receptor_chains, binder_chains, max_tokens
         )
         features.update(protein_masks)
-        
+
         # Add protein-protein specific features
         protein_features = self._compute_protein_protein_features(
             data, receptor_chains, binder_chains
         )
         features.update(protein_features)
-        
+
         # Add metadata for downstream processing
         features["receptor_chain_ids"] = torch.tensor(receptor_chains, dtype=torch.long)
         features["binder_chain_ids"] = torch.tensor(binder_chains, dtype=torch.long)
         features["protein_protein_mode"] = torch.tensor(True, dtype=torch.bool)
-        
+
         return features
 
     def process_protein_complex_affinity(
@@ -340,7 +364,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
     ) -> dict[str, Tensor]:
         """
         Convenience method for processing protein complexes with affinity data.
-        
+
         Parameters
         ----------
         data : Tokenized
@@ -361,7 +385,7 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             Whether in training mode.
         **process_kwargs
             Additional arguments for the process method.
-            
+
         Returns
         -------
         dict[str, Tensor]
@@ -376,30 +400,34 @@ class ProteinProteinFeaturizer(Boltz2Featurizer):
             receptor_chain_ids=receptor_chain_ids,
             binder_chain_ids=binder_chain_ids,
             compute_affinity=True,
-            **process_kwargs
+            **process_kwargs,
         )
-        
+
         # Add affinity target information if available
         if affinity_value is not None:
-            features["affinity_target"] = torch.tensor(affinity_value, dtype=torch.float)
+            features["affinity_target"] = torch.tensor(
+                affinity_value, dtype=torch.float
+            )
             features["affinity_type"] = affinity_type
-            
+
             # Convert to standard units (log scale) if needed
             if affinity_type.lower() in ["kd", "ki", "ic50"]:
                 # Convert to -log10(M) scale
                 log_affinity = -math.log10(affinity_value * 1e-9)  # Assuming nM input
-                features["log_affinity_target"] = torch.tensor(log_affinity, dtype=torch.float)
-        
+                features["log_affinity_target"] = torch.tensor(
+                    log_affinity, dtype=torch.float
+                )
+
         return features
 
 
 def create_protein_protein_featurizer() -> ProteinProteinFeaturizer:
     """
     Factory function to create a protein-protein featurizer.
-        
+
     Returns
     -------
     ProteinProteinFeaturizer
         Configured featurizer for protein-protein complexes.
     """
-    return ProteinProteinFeaturizer() 
+    return ProteinProteinFeaturizer()

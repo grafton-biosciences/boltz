@@ -113,7 +113,9 @@ class Boltz2(LightningModule):
 
         if validate_structure:
             # Late init at setup time
-            self.val_group_mapper = {}  # maps a dataset index to a validation group name
+            self.val_group_mapper = (
+                {}
+            )  # maps a dataset index to a validation group name
             self.validator_mapper = {}  # maps a dataset index to a validator
 
             # Validators for each dataset keep track of all metrics,
@@ -361,7 +363,8 @@ class Boltz2(LightningModule):
         """Set the model for training, validation and inference."""
         if stage == "predict" and not (
             torch.cuda.is_available()
-            and torch.cuda.get_device_properties(torch.device("cuda")).major >= 8.0  # noqa: PLR2004
+            and torch.cuda.get_device_properties(torch.device("cuda")).major
+            >= 8.0  # noqa: PLR2004
         ):
             self.use_kernels = False
 
@@ -457,7 +460,9 @@ class Boltz2(LightningModule):
                         # Compute pairwise stack
                         if self.use_templates:
                             if self.is_template_compiled and not self.training:
-                                template_module = self.template_module._orig_mod  # noqa: SLF001
+                                template_module = (
+                                    self.template_module._orig_mod
+                                )  # noqa: SLF001
                             else:
                                 template_module = self.template_module
 
@@ -476,7 +481,9 @@ class Boltz2(LightningModule):
 
                         # Revert to uncompiled version for validation
                         if self.is_pairformer_compiled and not self.training:
-                            pairformer_module = self.pairformer_module._orig_mod  # noqa: SLF001
+                            pairformer_module = (
+                                self.pairformer_module._orig_mod
+                            )  # noqa: SLF001
                         else:
                             pairformer_module = self.pairformer_module
 
@@ -549,9 +556,9 @@ class Boltz2(LightningModule):
 
             if self.training and self.confidence_prediction:
                 assert len(feats["coords"].shape) == 4
-                assert feats["coords"].shape[1] == 1, (
-                    "Only one conformation is supported for confidence"
-                )
+                assert (
+                    feats["coords"].shape[1] == 1
+                ), "Only one conformation is supported for confidence"
 
             # Compute structure module
             if self.training and self.structure_prediction_training:
@@ -735,9 +742,9 @@ class Boltz2(LightningModule):
 
         return_dict = {}
 
-        assert batch["coords"].shape[0] == 1, (
-            f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
-        )
+        assert (
+            batch["coords"].shape[0] == 1
+        ), f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
 
         if symmetry_correction:
             true_coords = []
@@ -863,9 +870,9 @@ class Boltz2(LightningModule):
 
             # TODO remove once multiple conformers are supported
             K = true_coords.shape[1]
-            assert K == 1, (
-                f"Confidence_prediction is not supported for num_ensembles_val={K}."
-            )
+            assert (
+                K == 1
+            ), f"Confidence_prediction is not supported for num_ensembles_val={K}."
 
             # For now, just take the only conformer.
             true_coords = true_coords.squeeze(1)  # (S, L, 3)
@@ -1236,12 +1243,12 @@ class Boltz2(LightningModule):
             checkpoint["hyper_parameters"]["training_args"][
                 "diffusion_multiplicity"
             ] = self.training_args.diffusion_multiplicity
-            checkpoint["hyper_parameters"]["training_args"]["recycling_steps"] = (
-                self.training_args.recycling_steps
-            )
-            checkpoint["hyper_parameters"]["training_args"]["weight_decay"] = (
-                self.training_args.weight_decay
-            )
+            checkpoint["hyper_parameters"]["training_args"][
+                "recycling_steps"
+            ] = self.training_args.recycling_steps
+            checkpoint["hyper_parameters"]["training_args"][
+                "weight_decay"
+            ] = self.training_args.weight_decay
 
     def configure_callbacks(self) -> list[Callback]:
         """Configure model callbacks.

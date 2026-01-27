@@ -128,7 +128,8 @@ class BoltzTokenizer(Tokenizer):
 
                     # Update atom_idx to token_idx
                     atom_to_token.update(
-                        dict.fromkeys(range(atom_start, atom_end), token_idx))
+                        dict.fromkeys(range(atom_start, atom_end), token_idx)
+                    )
 
                     token_idx += 1
 

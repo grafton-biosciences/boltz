@@ -18,7 +18,7 @@ def create_affinity_cropper(
     force_protein_protein: bool = False,
 ) -> Cropper:
     """Create the appropriate affinity cropper based on interaction type.
-    
+
     Parameters
     ----------
     data : Tokenized
@@ -33,7 +33,7 @@ def create_affinity_cropper(
         Minimum number of interface residues for protein-protein cropper.
     force_protein_protein : bool
         Force use of protein-protein cropper regardless of detection.
-        
+
     Returns
     -------
     Cropper
@@ -42,20 +42,17 @@ def create_affinity_cropper(
     # Detect interaction type
     valid_tokens = data.tokens[data.tokens["resolved_mask"]]
     binder_tokens = valid_tokens[valid_tokens["affinity_mask"]]
-    
+
     # Check if binder is protein or nucleic acid (dna/rna) for protein-polymer mode
-    is_protein_polymer = (
-        force_protein_protein or
-        (
-            binder_tokens.size > 0 and
-            all(
-                (binder_tokens["mol_type"] == const.chain_type_ids["PROTEIN"]) |
-                (binder_tokens["mol_type"] == const.chain_type_ids["DNA"]) |
-                (binder_tokens["mol_type"] == const.chain_type_ids["RNA"])
-            )
+    is_protein_polymer = force_protein_protein or (
+        binder_tokens.size > 0
+        and all(
+            (binder_tokens["mol_type"] == const.chain_type_ids["PROTEIN"])
+            | (binder_tokens["mol_type"] == const.chain_type_ids["DNA"])
+            | (binder_tokens["mol_type"] == const.chain_type_ids["RNA"])
         )
     )
-    
+
     if is_protein_polymer:
         return ProteinProteinAffinityCropper(
             neighborhood_size=neighborhood_size,
@@ -72,12 +69,12 @@ def create_affinity_cropper(
 
 def detect_interaction_type(data: Tokenized) -> str:
     """Detect the type of affinity interaction in the data.
-    
+
     Parameters
     ----------
     data : Tokenized
         The tokenized data to analyze.
-        
+
     Returns
     -------
     str
@@ -85,13 +82,13 @@ def detect_interaction_type(data: Tokenized) -> str:
     """
     valid_tokens = data.tokens[data.tokens["resolved_mask"]]
     binder_tokens = valid_tokens[valid_tokens["affinity_mask"]]
-    
+
     if binder_tokens.size == 0:
         return "unknown"
-    
+
     if all(binder_tokens["mol_type"] == const.chain_type_ids["PROTEIN"]):
         return "protein-protein"
     elif any(binder_tokens["mol_type"] == const.chain_type_ids["NONPOLYMER"]):
         return "protein-ligand"
     else:
-        return "unknown" 
+        return "unknown"

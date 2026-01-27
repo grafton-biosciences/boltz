@@ -72,7 +72,9 @@ def distogram_loss(
             for k in range(target.shape[3]):
                 # Get the target distogram for conformer k
                 # (B, L, L, K, disto_bins) -> (B, L, L, D, disto_bins)
-                P_k = target[:, :, :, k : k + 1, :].repeat_interleave(D, dim=3)  # noqa: N806
+                P_k = target[:, :, :, k : k + 1, :].repeat_interleave(
+                    D, dim=3
+                )  # noqa: N806
 
                 # Compute the distogram loss to all predicted distograms
                 log_Q = torch.nn.functional.log_softmax(pred, dim=-1)  # noqa: N806

@@ -49,13 +49,15 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
     auth = None
     if has_basic_auth:
         auth = HTTPBasicAuth(msa_server_username, msa_server_password)
-        logger.debug(f"MMSeqs2 server authentication: using basic auth for user '{msa_server_username}'")
+        logger.debug(
+            f"MMSeqs2 server authentication: using basic auth for user '{msa_server_username}'"
+        )
     elif has_header_auth:
         headers.update(auth_headers)
         logger.debug("MMSeqs2 server authentication: using header-based authentication")
     else:
         logger.debug("MMSeqs2 server authentication: no credentials provided")
-    
+
     logger.debug(f"Connecting to MMSeqs2 server at: {host_url}")
     logger.debug(f"Using endpoint: {submission_endpoint}")
     logger.debug(f"Pairing strategy: {pairing_strategy}")
@@ -73,7 +75,9 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
             try:
                 # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
                 # "good practice to set connect timeouts to slightly larger than a multiple of 3"
-                logger.debug(f"Submitting MSA request to {host_url}/{submission_endpoint}")
+                logger.debug(
+                    f"Submitting MSA request to {host_url}/{submission_endpoint}"
+                )
                 res = requests.post(
                     f"{host_url}/{submission_endpoint}",
                     data={"q": query, "mode": mode},
@@ -138,7 +142,10 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
             try:
                 logger.debug(f"Downloading MSA results for ID: {ID}")
                 res = requests.get(
-                    f"{host_url}/result/download/{ID}", timeout=6.02, headers=headers, auth=auth
+                    f"{host_url}/result/download/{ID}",
+                    timeout=6.02,
+                    headers=headers,
+                    auth=auth,
                 )
                 logger.debug(f"MSA download response status: {res.status_code}")
             except Exception as e:

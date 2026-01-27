@@ -103,15 +103,21 @@ def get_symmetries(mols: dict[str, Mol]) -> dict:  # noqa: PLR0912
             if mol.HasProp("pb_edge_index"):
                 edge_index = pickle.loads(
                     bytes.fromhex(mol.GetProp("pb_edge_index"))
-                ).astype(np.int64)  # noqa: S301
+                ).astype(
+                    np.int64
+                )  # noqa: S301
                 lower_bounds = pickle.loads(
                     bytes.fromhex(mol.GetProp("pb_lower_bounds"))
                 )  # noqa: S301
                 upper_bounds = pickle.loads(
                     bytes.fromhex(mol.GetProp("pb_upper_bounds"))
                 )  # noqa: S301
-                bond_mask = pickle.loads(bytes.fromhex(mol.GetProp("pb_bond_mask")))  # noqa: S301
-                angle_mask = pickle.loads(bytes.fromhex(mol.GetProp("pb_angle_mask")))  # noqa: S301
+                bond_mask = pickle.loads(
+                    bytes.fromhex(mol.GetProp("pb_bond_mask"))
+                )  # noqa: S301
+                angle_mask = pickle.loads(
+                    bytes.fromhex(mol.GetProp("pb_angle_mask"))
+                )  # noqa: S301
             else:
                 edge_index = np.empty((2, 0), dtype=np.int64)
                 lower_bounds = np.array([], dtype=np.float32)

@@ -421,8 +421,9 @@ def construct_paired_msa(  # noqa: C901, PLR0915, PLR0912
     # Map (chain_id, seq_idx, res_idx) to deletion
     deletions = numba.typed.Dict.empty(
         key_type=numba.types.Tuple(
-            [numba.types.int64, numba.types.int64, numba.types.int64]),
-        value_type=numba.types.int64
+            [numba.types.int64, numba.types.int64, numba.types.int64]
+        ),
+        value_type=numba.types.int64,
     )
     for chain_id, chain_msa in msa.items():
         chain_deletions = chain_msa.deletions
@@ -1894,9 +1895,9 @@ def process_ensemble_features(
 
     if fix_single_ensemble:
         # Always take the first conformer for train and validation
-        assert num_ensembles == 1, (
-            "Number of conformers sampled must be 1 with fix_single_ensemble=True."
-        )
+        assert (
+            num_ensembles == 1
+        ), "Number of conformers sampled must be 1 with fix_single_ensemble=True."
         ensemble_ref_idxs = np.array([0])
     else:
         if ensemble_sample_replacement:
@@ -2335,8 +2336,14 @@ class Boltz2Featurizer:
             chain_constraint_features = process_chain_feature_constraints(data)
             contact_constraint_features = process_contact_feature_constraints(
                 data=data,
-                inference_pocket_constraints=inference_pocket_constraints if inference_pocket_constraints else [],
-                inference_contact_constraints=inference_contact_constraints if inference_contact_constraints else [],
+                inference_pocket_constraints=(
+                    inference_pocket_constraints if inference_pocket_constraints else []
+                ),
+                inference_contact_constraints=(
+                    inference_contact_constraints
+                    if inference_contact_constraints
+                    else []
+                ),
             )
 
         return {

@@ -201,7 +201,9 @@ class ClusterSampler(Sampler):
         self.beta_chain = beta_chain
         self.beta_interface = beta_interface
 
-    def sample(self, records: List[Record], random: RandomState) -> Iterator[Sample]:  # noqa: C901, PLR0912
+    def sample(
+        self, records: List[Record], random: RandomState
+    ) -> Iterator[Sample]:  # noqa: C901, PLR0912
         """Sample a structure from the dataset infinitely.
 
         Parameters

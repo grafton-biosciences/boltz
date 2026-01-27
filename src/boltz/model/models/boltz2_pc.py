@@ -37,10 +37,11 @@ from boltz.model.optim.ema import EMA
 from boltz.model.optim.scheduler import AlphaFoldLRScheduler
 import pickle
 
+
 class Boltz2_pc(LightningModule):
     """
     Boltz2 model with protein-protein affinity support.
-    
+
     This extends the original Boltz2 model to support protein-protein binding
     affinity prediction while maintaining full compatibility with existing weights.
     """
@@ -113,7 +114,7 @@ class Boltz2_pc(LightningModule):
     ) -> None:
         """
         Initialize the protein-protein Boltz2 model.
-        
+
         Parameters
         ----------
         protein_ligand_mode : bool
@@ -121,7 +122,6 @@ class Boltz2_pc(LightningModule):
         """
         super().__init__()
         self.save_hyperparameters(ignore=["validators"])
-
 
         # Store protein-protein specific settings
         self.protein_ligand_mode = protein_ligand_mode
@@ -131,7 +131,9 @@ class Boltz2_pc(LightningModule):
 
         if validate_structure:
             # Late init at setup time
-            self.val_group_mapper = {}  # maps a dataset index to a validation group name
+            self.val_group_mapper = (
+                {}
+            )  # maps a dataset index to a validation group name
             self.validator_mapper = {}  # maps a dataset index to a validator
 
             # Validators for each dataset keep track of all metrics,
@@ -194,7 +196,7 @@ class Boltz2_pc(LightningModule):
             "use_residue_feats_atoms": use_residue_feats_atoms,
             **embedder_args,
         }
-        
+
         self.input_embedder = InputEmbedder(**full_embedder_args)
 
         self.s_init = nn.Linear(token_s, token_s, bias=False)
@@ -345,10 +347,10 @@ class Boltz2_pc(LightningModule):
         # Initialize protein-protein affinity modules
         if self.affinity_prediction:
             if self.affinity_ensemble:
-                #with open("affinity_module1.pkl", "wb") as f:
+                # with open("affinity_module1.pkl", "wb") as f:
                 #    out_dict = {"token_s": token_s,
-                #     "token_z": token_z, 
-                #     "protein_ligand_mode": protein_ligand_mode, 
+                #     "token_z": token_z,
+                #     "protein_ligand_mode": protein_ligand_mode,
                 #     "affinity_model_args1": affinity_model_args1}
                 #    pickle.dump(out_dict, f)
 
@@ -360,11 +362,10 @@ class Boltz2_pc(LightningModule):
                     **affinity_model_args1,
                 )
 
-
-                #with open("affinity_module2.pkl", "wb") as f:
+                # with open("affinity_module2.pkl", "wb") as f:
                 #    out_dict = {"token_s": token_s,
-                #     "token_z": token_z, 
-                #     "protein_ligand_mode": protein_ligand_mode, 
+                #     "token_z": token_z,
+                #     "protein_ligand_mode": protein_ligand_mode,
                 #     "affinity_model_args2": affinity_model_args2}
                 #    pickle.dump(out_dict, f)
 
@@ -388,7 +389,6 @@ class Boltz2_pc(LightningModule):
                     token_z,
                     protein_ligand_mode,
                     **affinity_model_args,
-
                 )
                 if compile_affinity:
                     self.affinity_module = torch.compile(
@@ -408,7 +408,8 @@ class Boltz2_pc(LightningModule):
         """Set the model for training, validation and inference."""
         if stage == "predict" and not (
             torch.cuda.is_available()
-            and torch.cuda.get_device_properties(torch.device("cuda")).major >= 8.0  # noqa: PLR2004
+            and torch.cuda.get_device_properties(torch.device("cuda")).major
+            >= 8.0  # noqa: PLR2004
         ):
             self.use_kernels = False
 
@@ -457,7 +458,7 @@ class Boltz2_pc(LightningModule):
     ) -> dict[str, Tensor]:
         """
         Forward pass with protein-protein support.
-        
+
         This maintains the same interface as the original Boltz2 model
         while adding protein-protein specific functionality.
         """
@@ -510,7 +511,9 @@ class Boltz2_pc(LightningModule):
                         # Compute pairwise stack
                         if self.use_templates:
                             if self.is_template_compiled and not self.training:
-                                template_module = self.template_module._orig_mod  # noqa: SLF001
+                                template_module = (
+                                    self.template_module._orig_mod
+                                )  # noqa: SLF001
                             else:
                                 template_module = self.template_module
 
@@ -529,7 +532,9 @@ class Boltz2_pc(LightningModule):
 
                         # Revert to uncompiled version for validation
                         if self.is_pairformer_compiled and not self.training:
-                            pairformer_module = self.pairformer_module._orig_mod  # noqa: SLF001
+                            pairformer_module = (
+                                self.pairformer_module._orig_mod
+                            )  # noqa: SLF001
                         else:
                             pairformer_module = self.pairformer_module
 
@@ -603,9 +608,9 @@ class Boltz2_pc(LightningModule):
 
             if self.training and self.confidence_prediction:
                 assert len(feats["coords"].shape) == 4
-                assert feats["coords"].shape[1] == 1, (
-                    "Only one conformation is supported for confidence"
-                )
+                assert (
+                    feats["coords"].shape[1] == 1
+                ), "Only one conformation is supported for confidence"
 
             # Compute structure module
             if self.training and self.structure_prediction_training:
@@ -661,9 +666,7 @@ class Boltz2_pc(LightningModule):
 
         # Affinity prediction with protein-protein support
         if self.affinity_prediction:
-            dict_out.update(
-                self._run_affinity_prediction(feats, s_inputs, z, dict_out)
-            )
+            dict_out.update(self._run_affinity_prediction(feats, s_inputs, z, dict_out))
 
         return dict_out
 
@@ -676,16 +679,14 @@ class Boltz2_pc(LightningModule):
     ) -> dict[str, Tensor]:
         """
         Run affinity prediction with protein-protein support.
-        
+
         This extends the original affinity prediction to handle protein-protein
         complexes while maintaining compatibility with small molecule ligands.
         """
         # Get the best structure for affinity prediction
         argsort = torch.argsort(dict_out["iptm"], descending=True)
         best_idx = argsort[0].item()
-        coords_affinity = dict_out["sample_atom_coords"].detach()[best_idx][
-            None, None
-        ]
+        coords_affinity = dict_out["sample_atom_coords"].detach()[best_idx][None, None]
 
         # Get sequence inputs for affinity
         s_inputs_affinity = self.input_embedder(feats, affinity=True)
@@ -694,7 +695,7 @@ class Boltz2_pc(LightningModule):
         # Run affinity prediction
         with torch.autocast("cuda", enabled=False):
             if self.affinity_ensemble:
-                #with open("affinity_input_sample.pkl", "wb") as f:
+                # with open("affinity_input_sample.pkl", "wb") as f:
                 #    out_dict = {"s_inputs_affinity": s_inputs_affinity.detach(),
                 #                "z_affinity": z_affinity.detach(),
                 #                "coords_affinity": coords_affinity,
@@ -748,23 +749,19 @@ class Boltz2_pc(LightningModule):
                 }
 
                 dict_out_affinity1 = {
-                        "affinity_pred_value1": dict_out_affinity1[
-                            "affinity_pred_value"
-                        ],
-                        "affinity_probability_binary1": dict_out_affinity1[
-                            "affinity_probability_binary"
-                        ],
-                }
-                
-                dict_out_affinity2 = {
-                    "affinity_pred_value2": dict_out_affinity2[
-                        "affinity_pred_value"
+                    "affinity_pred_value1": dict_out_affinity1["affinity_pred_value"],
+                    "affinity_probability_binary1": dict_out_affinity1[
+                        "affinity_probability_binary"
                     ],
+                }
+
+                dict_out_affinity2 = {
+                    "affinity_pred_value2": dict_out_affinity2["affinity_pred_value"],
                     "affinity_probability_binary2": dict_out_affinity2[
                         "affinity_probability_binary"
                     ],
                 }
-                
+
                 # Add protein-specific predictions if available
                 """
                 if self.protein_ligand_mode:
@@ -788,8 +785,7 @@ class Boltz2_pc(LightningModule):
                     bias = 2.83288489
                     mw = feats["affinity_mw"][0] ** 0.3
                     dict_out_affinity_ensemble["affinity_pred_value"] = (
-                        model_coef
-                        * dict_out_affinity_ensemble["affinity_pred_value"]
+                        model_coef * dict_out_affinity_ensemble["affinity_pred_value"]
                         + mw_coef * mw
                         + bias
                     )
@@ -841,9 +837,9 @@ class Boltz2_pc(LightningModule):
 
         return_dict = {}
 
-        assert batch["coords"].shape[0] == 1, (
-            f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
-        )
+        assert (
+            batch["coords"].shape[0] == 1
+        ), f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
 
         if symmetry_correction:
             true_coords = []
@@ -969,9 +965,9 @@ class Boltz2_pc(LightningModule):
 
             # TODO remove once multiple conformers are supported
             K = true_coords.shape[1]
-            assert K == 1, (
-                f"Confidence_prediction is not supported for num_ensembles_val={K}."
-            )
+            assert (
+                K == 1
+            ), f"Confidence_prediction is not supported for num_ensembles_val={K}."
 
             # For now, just take the only conformer.
             true_coords = true_coords.squeeze(1)  # (S, L, 3)
@@ -1207,12 +1203,12 @@ class Boltz2_pc(LightningModule):
                     pred_dict["pae"] = out["pae"]
                     pred_dict["ptm"] = out["ptm"]
                     pred_dict["iptm"] = out["iptm"]
-                    
+
                     argsort = torch.argsort(pred_dict["iptm"], descending=True)
                     # Finding and saving the best iptm index
                     best_idx = argsort[0].item()
                     pred_dict["best_iptm_idx"] = best_idx
-                    
+
                     pred_dict["ligand_iptm"] = out["ligand_iptm"]
                     pred_dict["protein_iptm"] = out["protein_iptm"]
                     pred_dict["pair_chains_iptm"] = out["pair_chains_iptm"]
@@ -1240,8 +1236,6 @@ class Boltz2_pc(LightningModule):
                 return {"exception": True}
             else:
                 raise e
-
-
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         """Configure the optimizer."""
@@ -1350,12 +1344,12 @@ class Boltz2_pc(LightningModule):
             checkpoint["hyper_parameters"]["training_args"][
                 "diffusion_multiplicity"
             ] = self.training_args.diffusion_multiplicity
-            checkpoint["hyper_parameters"]["training_args"]["recycling_steps"] = (
-                self.training_args.recycling_steps
-            )
-            checkpoint["hyper_parameters"]["training_args"]["weight_decay"] = (
-                self.training_args.weight_decay
-            )
+            checkpoint["hyper_parameters"]["training_args"][
+                "recycling_steps"
+            ] = self.training_args.recycling_steps
+            checkpoint["hyper_parameters"]["training_args"][
+                "weight_decay"
+            ] = self.training_args.weight_decay
 
     def configure_callbacks(self) -> list[Callback]:
         """Configure model callbacks.
@@ -1369,7 +1363,6 @@ class Boltz2_pc(LightningModule):
         return [EMA(self.ema_decay)] if self.use_ema else []
 
 
-
 def create_boltz2_pc_model(
     atom_s: int = 384,
     atom_z: int = 128,
@@ -1377,11 +1370,11 @@ def create_boltz2_pc_model(
     token_z: int = 128,
     num_bins: int = 64,
     protein_ligand_mode: bool = True,
-    **kwargs
+    **kwargs,
 ) -> Boltz2_pc:
     """
     Factory function to create a protein-protein Boltz2 model.
-    
+
     Parameters
     ----------
     atom_s : int
@@ -1398,7 +1391,7 @@ def create_boltz2_pc_model(
         Whether to use protein-ligand mode
     **kwargs
         Additional arguments
-        
+
     Returns
     -------
     Boltz2ProteinProtein
@@ -1411,5 +1404,5 @@ def create_boltz2_pc_model(
         token_z=token_z,
         num_bins=num_bins,
         protein_ligand_mode=protein_ligand_mode,
-        **kwargs
-    ) 
+        **kwargs,
+    )

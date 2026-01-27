@@ -30,44 +30,53 @@ import torch
 import torch.nn as nn
 from scipy import stats
 from sklearn.metrics import (
-    auc, average_precision_score, confusion_matrix,
-    mean_absolute_error, precision_recall_curve, r2_score, roc_curve
+    auc,
+    average_precision_score,
+    confusion_matrix,
+    mean_absolute_error,
+    precision_recall_curve,
+    r2_score,
+    roc_curve,
 )
 from torch.cuda.amp import GradScaler
 from torch.amp import autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import (
-    CosineAnnealingWarmRestarts, OneCycleLR, ReduceLROnPlateau
+    CosineAnnealingWarmRestarts,
+    OneCycleLR,
+    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 try:
     import wandb
+
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False
     print("Warning: wandb not installed. Install with: pip install wandb")
 
 import sys
-sys.path.insert(0, '/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/src')
+
+sys.path.insert(
+    0,
+    "/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/src",
+)
 from boltz.model.modules.affinity_protein import ProteinProteinAffinityModule
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('finetune_affinity.log')
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("finetune_affinity.log")],
 )
 logger = logging.getLogger(__name__)
 
 # Set plotting style
 sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (12, 8)
-plt.rcParams['font.size'] = 12
+plt.rcParams["figure.figsize"] = (12, 8)
+plt.rcParams["font.size"] = 12
 
 
 def set_seed(seed: int = 42):
@@ -95,7 +104,7 @@ def convert_kd_to_pkd_micromolar(kd_molar: float) -> float:
 class AffinityDataset(Dataset):
     """
     Dataset for protein-protein affinity data from affinity_train_dataset.
-    
+
     Features:
     - LAZY LOADING: Only loads metadata at init, loads tensors on-demand
     - Auto-balance threshold: uses median Kd for ~50/50 class split
@@ -107,15 +116,15 @@ class AffinityDataset(Dataset):
         self,
         msa_dir: str,
         yaml_dir: str,
-        split: str = 'train',  # 'train', 'val', or 'test'
+        split: str = "train",  # 'train', 'val', or 'test'
         train_ratio: float = 0.855,  # 85.5% train (of total)
-        val_ratio: float = 0.045,    # 4.5% val (of total)
+        val_ratio: float = 0.045,  # 4.5% val (of total)
         # test_ratio = 1 - train_ratio - val_ratio = 10%
         binding_threshold: float = 1e-6,  # Default: 1 μM
         auto_balance_threshold: bool = True,  # Auto-select threshold for 50/50 balance
         max_samples: Optional[int] = None,
         seed: int = 42,
-        verbose: bool = True
+        verbose: bool = True,
     ):
         self.msa_dir = Path(msa_dir)
         self.yaml_dir = Path(yaml_dir)
@@ -141,14 +150,16 @@ class AffinityDataset(Dataset):
     def _scan_samples(self, max_samples: Optional[int]):
         """Scan samples and load only metadata (not tensor data)."""
         sample_dirs = sorted([d for d in self.msa_dir.iterdir() if d.is_dir()])
-        
+
         if max_samples is not None:
             sample_dirs = sample_dirs[:max_samples]
 
         logger.info(f"Scanning {len(sample_dirs)} samples (lazy loading)...")
 
         # First pass: collect all metadata
-        for sample_dir in tqdm(sample_dirs, desc="Scanning samples", disable=not self.verbose):
+        for sample_dir in tqdm(
+            sample_dirs, desc="Scanning samples", disable=not self.verbose
+        ):
             sample_name = sample_dir.name
 
             # Paths
@@ -156,9 +167,13 @@ class AffinityDataset(Dataset):
             affinity_module_path = sample_dir / "affinity_module1.pkl"
             metadata_path = self.yaml_dir / sample_name / "manifest.json"
 
-            if not all([affinity_input_path.exists(),
-                       affinity_module_path.exists(),
-                       metadata_path.exists()]):
+            if not all(
+                [
+                    affinity_input_path.exists(),
+                    affinity_module_path.exists(),
+                    metadata_path.exists(),
+                ]
+            ):
                 self.failed_samples.append((sample_name, "Missing files"))
                 continue
 
@@ -198,7 +213,7 @@ class AffinityDataset(Dataset):
                     "pkd_micromolar": pkd_micromolar,
                     "is_binder": None,  # Will be set below
                     "binding_strength": binding_strength,
-                    "mutations": metadata.get("mutations", None)
+                    "mutations": metadata.get("mutations", None),
                 }
                 self.sample_info.append(sample_info)
 
@@ -235,25 +250,32 @@ class AffinityDataset(Dataset):
         # Calculate split indices for each class
         # train_ratio + val_ratio + test_ratio = 1.0
         test_ratio = 1.0 - self.train_ratio - self.val_ratio
-        
+
         # Binders split
         n_train_binders = int(len(binders) * self.train_ratio)
         n_val_binders = int(len(binders) * self.val_ratio)
         # Rest goes to test
-        
+
         # Non-binders split
         n_train_non_binders = int(len(non_binders) * self.train_ratio)
         n_val_non_binders = int(len(non_binders) * self.val_ratio)
 
-        if self.split == 'train':
-            self.sample_info = (binders[:n_train_binders] + 
-                               non_binders[:n_train_non_binders])
-        elif self.split == 'val':
-            self.sample_info = (binders[n_train_binders:n_train_binders + n_val_binders] + 
-                               non_binders[n_train_non_binders:n_train_non_binders + n_val_non_binders])
+        if self.split == "train":
+            self.sample_info = (
+                binders[:n_train_binders] + non_binders[:n_train_non_binders]
+            )
+        elif self.split == "val":
+            self.sample_info = (
+                binders[n_train_binders : n_train_binders + n_val_binders]
+                + non_binders[
+                    n_train_non_binders : n_train_non_binders + n_val_non_binders
+                ]
+            )
         else:  # test
-            self.sample_info = (binders[n_train_binders + n_val_binders:] + 
-                               non_binders[n_train_non_binders + n_val_non_binders:])
+            self.sample_info = (
+                binders[n_train_binders + n_val_binders :]
+                + non_binders[n_train_non_binders + n_val_non_binders :]
+            )
 
         np.random.shuffle(self.sample_info)
         logger.info(f"{self.split} set: {len(self.sample_info)} samples")
@@ -277,21 +299,39 @@ class AffinityDataset(Dataset):
             "pkd_median": np.median(pkd_values),
             "n_binders": int(n_binders),
             "n_non_binders": int(n_non_binders),
-            "binder_ratio": n_binders / len(self.sample_info) if len(self.sample_info) > 0 else 0,
-            "n_strong": sum(1 for s in self.sample_info if s["binding_strength"] == "strong"),
-            "n_moderate": sum(1 for s in self.sample_info if s["binding_strength"] == "moderate"),
-            "n_weak": sum(1 for s in self.sample_info if s["binding_strength"] == "weak"),
-            "n_non_binder_cat": sum(1 for s in self.sample_info if s["binding_strength"] == "non_binder")
+            "binder_ratio": (
+                n_binders / len(self.sample_info) if len(self.sample_info) > 0 else 0
+            ),
+            "n_strong": sum(
+                1 for s in self.sample_info if s["binding_strength"] == "strong"
+            ),
+            "n_moderate": sum(
+                1 for s in self.sample_info if s["binding_strength"] == "moderate"
+            ),
+            "n_weak": sum(
+                1 for s in self.sample_info if s["binding_strength"] == "weak"
+            ),
+            "n_non_binder_cat": sum(
+                1 for s in self.sample_info if s["binding_strength"] == "non_binder"
+            ),
         }
 
         if self.verbose:
             logger.info(f"Dataset statistics for {self.split}:")
-            logger.info(f"  pKd (μM scale): {self.stats['pkd_mean']:.2f} ± {self.stats['pkd_std']:.2f}")
-            logger.info(f"  pKd range: [{self.stats['pkd_min']:.2f}, {self.stats['pkd_max']:.2f}]")
-            logger.info(f"  Binders/Non-binders: {self.stats['n_binders']}/{self.stats['n_non_binders']} "
-                       f"({self.stats['binder_ratio']:.1%} binders)")
-            logger.info(f"  By strength - Strong: {self.stats['n_strong']}, Moderate: {self.stats['n_moderate']}, "
-                       f"Weak: {self.stats['n_weak']}, Non-binder: {self.stats['n_non_binder_cat']}")
+            logger.info(
+                f"  pKd (μM scale): {self.stats['pkd_mean']:.2f} ± {self.stats['pkd_std']:.2f}"
+            )
+            logger.info(
+                f"  pKd range: [{self.stats['pkd_min']:.2f}, {self.stats['pkd_max']:.2f}]"
+            )
+            logger.info(
+                f"  Binders/Non-binders: {self.stats['n_binders']}/{self.stats['n_non_binders']} "
+                f"({self.stats['binder_ratio']:.1%} binders)"
+            )
+            logger.info(
+                f"  By strength - Strong: {self.stats['n_strong']}, Moderate: {self.stats['n_moderate']}, "
+                f"Weak: {self.stats['n_weak']}, Non-binder: {self.stats['n_non_binder_cat']}"
+            )
 
     def __len__(self):
         return len(self.sample_info)
@@ -299,7 +339,7 @@ class AffinityDataset(Dataset):
     def __getitem__(self, idx):
         """Load sample data on-demand (lazy loading)."""
         info = self.sample_info[idx]
-        
+
         # Load tensor data on-demand
         try:
             with open(info["affinity_input_path"], "rb") as f:
@@ -316,16 +356,16 @@ class AffinityDataset(Dataset):
             "coords_affinity": affinity_data["coords_affinity"],
             "feats": affinity_data.get("feats", {}),
             "use_kernels": affinity_data.get("use_kernels", False),
-
             # Targets
             "target_pkd": torch.tensor(info["pkd_micromolar"], dtype=torch.float32),
             "target_binary": torch.tensor(info["is_binder"], dtype=torch.float32),
-            "target_kd_micromolar": torch.tensor(info["kd_micromolar"], dtype=torch.float32),
-
+            "target_kd_micromolar": torch.tensor(
+                info["kd_micromolar"], dtype=torch.float32
+            ),
             # Metadata
             "sample_name": info["name"],
             "pdb_id": info["pdb_id"],
-            "binding_strength": info["binding_strength"]
+            "binding_strength": info["binding_strength"],
         }
 
 
@@ -343,19 +383,19 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
 
     # First pass: determine max dimensions across batch
     # s_inputs_affinity: [batch=1, seq, features] -> need max seq
-    # z_affinity: [batch=1, seq, seq, features] -> need max seq  
+    # z_affinity: [batch=1, seq, seq, features] -> need max seq
     # coords_affinity: [batch=1, model=1, atoms, 3] -> need max atoms
-    
+
     seq_lens = []
     atom_counts = []
-    
+
     for b in batch:
         s = b["s_inputs_affinity"]
         if s.dim() == 3 and s.shape[0] == 1:
             seq_lens.append(s.shape[1])
         else:
             seq_lens.append(s.shape[0])
-        
+
         c = b["coords_affinity"]
         if c.dim() == 4:  # [batch=1, model=1, atoms, 3]
             atom_counts.append(c.shape[2])
@@ -363,7 +403,7 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
             atom_counts.append(c.shape[1])
         else:
             atom_counts.append(c.shape[0])
-    
+
     max_seq_len = max(seq_lens)
     max_atoms = max(atom_counts)
 
@@ -421,11 +461,11 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
     # Handle feats dictionary - need to pad and stack tensors properly
     if "feats" in batch[0] and isinstance(batch[0]["feats"], dict):
         collated_feats = {}
-        
+
         # Critical tensors that map between tokens and atoms
         # token_to_rep_atom: [batch=1, tokens, atoms] -> one-hot mapping
         # atom_to_token: [batch=1, atoms, tokens] -> one-hot mapping
-        
+
         for key in ["token_to_rep_atom", "r_set_to_rep_atom", "token_to_center_atom"]:
             if key in batch[0]["feats"]:
                 tensors = []
@@ -437,10 +477,14 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
                     # Pad: [tokens, atoms] -> [max_seq, max_atoms]
                     tokens_pad = max_seq_len - t.shape[0]
                     atoms_pad = max_atoms - t.shape[1]
-                    t = torch.nn.functional.pad(t, (0, atoms_pad, 0, tokens_pad), value=0)
+                    t = torch.nn.functional.pad(
+                        t, (0, atoms_pad, 0, tokens_pad), value=0
+                    )
                     tensors.append(t)
-                collated_feats[key] = torch.stack(tensors)  # [batch, max_seq, max_atoms]
-        
+                collated_feats[key] = torch.stack(
+                    tensors
+                )  # [batch, max_seq, max_atoms]
+
         if "atom_to_token" in batch[0]["feats"]:
             tensors = []
             for b in batch:
@@ -453,8 +497,10 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
                 tokens_pad = max_seq_len - t.shape[1]
                 t = torch.nn.functional.pad(t, (0, tokens_pad, 0, atoms_pad), value=0)
                 tensors.append(t)
-            collated_feats["atom_to_token"] = torch.stack(tensors)  # [batch, max_atoms, max_seq]
-        
+            collated_feats["atom_to_token"] = torch.stack(
+                tensors
+            )  # [batch, max_atoms, max_seq]
+
         # Handle 1D mask tensors (token-level)
         for key in ["token_pad_mask", "mol_type", "affinity_token_mask"]:
             if key in batch[0]["feats"]:
@@ -471,7 +517,7 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
                         t = torch.nn.functional.pad(t, (0, pad_size), value=0)
                     tensors.append(t)
                 collated_feats[key] = torch.stack(tensors)  # [batch, max_seq]
-        
+
         # Copy remaining feats (non-tensor or scalar values)
         for key in batch[0]["feats"]:
             if key not in collated_feats:
@@ -485,7 +531,7 @@ def custom_collate_fn(batch: List[Dict]) -> Dict:
                         collated_feats[key] = val
                 else:
                     collated_feats[key] = val
-        
+
         collated["feats"] = collated_feats
     else:
         collated["feats"] = batch[0].get("feats", {})
@@ -527,7 +573,7 @@ class AffinityFinetuner:
             "val_loss": float("inf"),
             "val_mae": float("inf"),
             "val_r2": -float("inf"),
-            "epoch": -1
+            "epoch": -1,
         }
         self.patience_counter = 0
 
@@ -538,7 +584,7 @@ class AffinityFinetuner:
             project=self.config.get("wandb_project", "boltz-affinity"),
             name=run_name,
             config=self.config,
-            tags=["affinity", "boltz", "protein-protein"]
+            tags=["affinity", "boltz", "protein-protein"],
         )
         logger.info(f"Initialized W&B run: {run_name}")
 
@@ -563,14 +609,16 @@ class AffinityFinetuner:
             module_dict["token_s"],
             module_dict["token_z"],
             module_dict["protein_ligand_mode"],
-            **module_dict[args_key]
+            **module_dict[args_key],
         ).to(self.device)
 
         # Load pretrained weights
         checkpoint_path = Path(self.config.get("checkpoint_path"))
         if checkpoint_path.exists():
             logger.info(f"Loading pretrained weights from {checkpoint_path}")
-            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            checkpoint = torch.load(
+                checkpoint_path, map_location=self.device, weights_only=False
+            )
             state_dict = checkpoint.get("state_dict", checkpoint)
 
             # Extract affinity module parameters
@@ -578,7 +626,7 @@ class AffinityFinetuner:
             prefix = "affinity_module1."
             for key, value in state_dict.items():
                 if key.startswith(prefix):
-                    new_key = key[len(prefix):]
+                    new_key = key[len(prefix) :]
                     affinity_state_dict[new_key] = value
 
             if affinity_state_dict:
@@ -595,7 +643,9 @@ class AffinityFinetuner:
         # Count parameters
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        logger.info(f"Model parameters: {total_params:,} total, {trainable_params:,} trainable")
+        logger.info(
+            f"Model parameters: {total_params:,} total, {trainable_params:,} trainable"
+        )
 
         return model
 
@@ -604,7 +654,7 @@ class AffinityFinetuner:
         self.optimizer = AdamW(
             self.model.parameters(),
             lr=self.config["learning_rate"],
-            weight_decay=self.config.get("weight_decay", 1e-5)
+            weight_decay=self.config.get("weight_decay", 1e-5),
         )
 
         scheduler_type = self.config.get("scheduler_type", "cosine")
@@ -613,13 +663,15 @@ class AffinityFinetuner:
                 self.optimizer,
                 T_0=self.config.get("cosine_T0", 10),
                 T_mult=self.config.get("cosine_Tmult", 2),
-                eta_min=self.config.get("min_lr", 1e-7)
+                eta_min=self.config.get("min_lr", 1e-7),
             )
         elif scheduler_type == "plateau":
             self.scheduler = ReduceLROnPlateau(
-                self.optimizer, mode="min", factor=0.5,
+                self.optimizer,
+                mode="min",
+                factor=0.5,
                 patience=self.config.get("scheduler_patience", 5),
-                min_lr=self.config.get("min_lr", 1e-7)
+                min_lr=self.config.get("min_lr", 1e-7),
             )
         else:
             self.scheduler = None
@@ -651,7 +703,7 @@ class AffinityFinetuner:
             coords = batch["coords_affinity"].to(self.device)
             target_pkd = batch["target_pkd"].to(self.device)
             target_binary = batch["target_binary"].to(self.device)
-            
+
             # Move feats tensors to device
             feats = {}
             for key, val in batch["feats"].items():
@@ -660,14 +712,14 @@ class AffinityFinetuner:
                 else:
                     feats[key] = val
 
-            with autocast(device_type='cuda', enabled=self.use_amp):
+            with autocast(device_type="cuda", enabled=self.use_amp):
                 output = self.model(
                     s_inputs=s_inputs,
                     z=z,
                     x_pred=coords,
                     feats=feats,
                     multiplicity=1,
-                    use_kernels=batch["use_kernels"]
+                    use_kernels=batch["use_kernels"],
                 )
 
                 pred_pkd = output["affinity_pred_value"].squeeze()
@@ -682,8 +734,8 @@ class AffinityFinetuner:
                 loss_binary = self.bce_loss(pred_binary, target_binary)
 
                 total_loss = (
-                    self.config.get("pkd_loss_weight", 1.0) * loss_pkd +
-                    self.config.get("binary_loss_weight", 0.5) * loss_binary
+                    self.config.get("pkd_loss_weight", 1.0) * loss_pkd
+                    + self.config.get("binary_loss_weight", 0.5) * loss_binary
                 )
                 total_loss = total_loss / accumulation_steps
 
@@ -696,8 +748,7 @@ class AffinityFinetuner:
                 if self.use_amp:
                     self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.get("gradient_clip", 1.0)
+                    self.model.parameters(), self.config.get("gradient_clip", 1.0)
                 )
                 if self.use_amp:
                     self.scaler.step(self.optimizer)
@@ -710,19 +761,23 @@ class AffinityFinetuner:
             epoch_pkd_losses.append(loss_pkd.item())
             epoch_binary_losses.append(loss_binary.item())
 
-            progress_bar.set_postfix({
-                "loss": f"{total_loss.item() * accumulation_steps:.4f}",
-                "pkd": f"{loss_pkd.item():.4f}",
-                "bin": f"{loss_binary.item():.4f}"
-            })
+            progress_bar.set_postfix(
+                {
+                    "loss": f"{total_loss.item() * accumulation_steps:.4f}",
+                    "pkd": f"{loss_pkd.item():.4f}",
+                    "bin": f"{loss_binary.item():.4f}",
+                }
+            )
 
         return {
             "loss": np.mean(epoch_losses),
             "pkd_loss": np.mean(epoch_pkd_losses),
-            "binary_loss": np.mean(epoch_binary_losses)
+            "binary_loss": np.mean(epoch_binary_losses),
         }
 
-    def validate(self, dataloader: DataLoader, epoch: int, split_name: str = "val") -> Dict:
+    def validate(
+        self, dataloader: DataLoader, epoch: int, split_name: str = "val"
+    ) -> Dict:
         """Validate the model on a given split."""
         self.model.eval()
 
@@ -743,7 +798,7 @@ class AffinityFinetuner:
                 coords = batch["coords_affinity"].to(self.device)
                 target_pkd = batch["target_pkd"].to(self.device)
                 target_binary = batch["target_binary"].to(self.device)
-                
+
                 # Move feats tensors to device
                 feats = {}
                 for key, val in batch["feats"].items():
@@ -752,14 +807,14 @@ class AffinityFinetuner:
                     else:
                         feats[key] = val
 
-                with autocast(device_type='cuda', enabled=self.use_amp):
+                with autocast(device_type="cuda", enabled=self.use_amp):
                     output = self.model(
                         s_inputs=s_inputs,
                         z=z,
                         x_pred=coords,
                         feats=feats,
                         multiplicity=1,
-                        use_kernels=batch["use_kernels"]
+                        use_kernels=batch["use_kernels"],
                     )
 
                     pred_pkd = output["affinity_pred_value"].squeeze()
@@ -773,8 +828,8 @@ class AffinityFinetuner:
                     loss_pkd = self.mse_loss(pred_pkd, target_pkd)
                     loss_binary = self.bce_loss(pred_binary, target_binary)
                     total_loss = (
-                        self.config.get("pkd_loss_weight", 1.0) * loss_pkd +
-                        self.config.get("binary_loss_weight", 0.5) * loss_binary
+                        self.config.get("pkd_loss_weight", 1.0) * loss_pkd
+                        + self.config.get("binary_loss_weight", 0.5) * loss_binary
                     )
 
                 all_losses.append(total_loss.item())
@@ -786,11 +841,13 @@ class AffinityFinetuner:
 
         # Calculate metrics
         metrics = self._calculate_metrics(
-            all_pkd_preds, all_pkd_targets,
-            all_binary_preds, all_binary_targets,
-            all_binding_strengths
+            all_pkd_preds,
+            all_pkd_targets,
+            all_binary_preds,
+            all_binary_targets,
+            all_binding_strengths,
         )
-        metrics["loss"] = np.mean(all_losses) if all_losses else float('inf')
+        metrics["loss"] = np.mean(all_losses) if all_losses else float("inf")
 
         return metrics
 
@@ -805,18 +862,25 @@ class AffinityFinetuner:
 
         if len(pkd_preds) == 0:
             return {"pkd_mae": 0, "pkd_rmse": 0, "pkd_r2": 0, "binary_accuracy": 0}
-        
+
         # Handle NaN values
         valid_mask = ~(np.isnan(pkd_preds) | np.isnan(pkd_targets))
         if not valid_mask.any():
             logger.warning("All predictions are NaN!")
-            return {"pkd_mae": float('inf'), "pkd_rmse": float('inf'), "pkd_r2": -1, "binary_accuracy": 0}
-        
+            return {
+                "pkd_mae": float("inf"),
+                "pkd_rmse": float("inf"),
+                "pkd_r2": -1,
+                "binary_accuracy": 0,
+            }
+
         pkd_preds = pkd_preds[valid_mask]
         pkd_targets = pkd_targets[valid_mask]
         binary_preds = binary_preds[valid_mask]
         binary_targets = binary_targets[valid_mask]
-        binding_strengths = [s for i, s in enumerate(binding_strengths) if valid_mask[i]]
+        binding_strengths = [
+            s for i, s in enumerate(binding_strengths) if valid_mask[i]
+        ]
 
         # Regression metrics
         mae = mean_absolute_error(pkd_targets, pkd_preds)
@@ -840,7 +904,11 @@ class AffinityFinetuner:
             sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            f1 = 2 * (precision * sensitivity) / (precision + sensitivity) if (precision + sensitivity) > 0 else 0
+            f1 = (
+                2 * (precision * sensitivity) / (precision + sensitivity)
+                if (precision + sensitivity) > 0
+                else 0
+            )
         else:
             sensitivity = specificity = precision = f1 = 0
 
@@ -862,11 +930,18 @@ class AffinityFinetuner:
             "specificity": specificity,
             "precision": precision,
             "f1_score": f1,
-            "roc_auc": roc_auc
+            "roc_auc": roc_auc,
         }
 
     def _create_plots(
-        self, pkd_preds, pkd_targets, binary_preds, binary_targets, binding_strengths, epoch, split_name: str = "val"
+        self,
+        pkd_preds,
+        pkd_targets,
+        binary_preds,
+        binary_targets,
+        binding_strengths,
+        epoch,
+        split_name: str = "val",
     ):
         """Create plots for a given split (train, val, or test)."""
         pkd_preds = np.array(pkd_preds, dtype=np.float32)
@@ -878,63 +953,87 @@ class AffinityFinetuner:
         module_tag = f"m{module_num}"
 
         if len(pkd_preds) == 0:
-            logger.warning(f"No predictions available for {split_name} plots at epoch {epoch}")
+            logger.warning(
+                f"No predictions available for {split_name} plots at epoch {epoch}"
+            )
             return
 
         fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-        fig.suptitle(f'{split_name.upper()} Set - Module {module_num} - Epoch {epoch}', fontsize=14, fontweight='bold')
+        fig.suptitle(
+            f"{split_name.upper()} Set - Module {module_num} - Epoch {epoch}",
+            fontsize=14,
+            fontweight="bold",
+        )
 
         # 1. pKd Correlation
         ax = axes[0, 0]
         ax.scatter(pkd_targets, pkd_preds, alpha=0.5, s=20)
-        ax.plot([pkd_targets.min(), pkd_targets.max()],
-                [pkd_targets.min(), pkd_targets.max()], 'k--', alpha=0.5)
-        ax.set_xlabel('True pKd (μM scale)')
-        ax.set_ylabel('Predicted pKd')
-        ax.set_title(f'pKd Predictions')
+        ax.plot(
+            [pkd_targets.min(), pkd_targets.max()],
+            [pkd_targets.min(), pkd_targets.max()],
+            "k--",
+            alpha=0.5,
+        )
+        ax.set_xlabel("True pKd (μM scale)")
+        ax.set_ylabel("Predicted pKd")
+        ax.set_title(f"pKd Predictions")
         mae = mean_absolute_error(pkd_targets, pkd_preds)
-        ax.text(0.05, 0.95, f'MAE: {mae:.3f}', transform=ax.transAxes,
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white'))
+        ax.text(
+            0.05,
+            0.95,
+            f"MAE: {mae:.3f}",
+            transform=ax.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="white"),
+        )
 
         # 2. Residual Plot
         ax = axes[0, 1]
         residuals = pkd_preds - pkd_targets
         ax.scatter(pkd_targets, residuals, alpha=0.5, s=20)
-        ax.axhline(y=0, color='r', linestyle='--')
-        ax.set_xlabel('True pKd')
-        ax.set_ylabel('Residual')
-        ax.set_title('Residual Plot')
+        ax.axhline(y=0, color="r", linestyle="--")
+        ax.set_xlabel("True pKd")
+        ax.set_ylabel("Residual")
+        ax.set_title("Residual Plot")
 
         # 3. ROC Curve
         ax = axes[1, 0]
         if len(np.unique(binary_targets)) > 1:
             fpr, tpr, _ = roc_curve(binary_targets, binary_preds)
             roc_auc = auc(fpr, tpr)
-            ax.plot(fpr, tpr, lw=2, label=f'ROC (AUC = {roc_auc:.3f})')
-            ax.plot([0, 1], [0, 1], 'k--')
-            ax.set_xlabel('False Positive Rate')
-            ax.set_ylabel('True Positive Rate')
-            ax.set_title('ROC Curve')
+            ax.plot(fpr, tpr, lw=2, label=f"ROC (AUC = {roc_auc:.3f})")
+            ax.plot([0, 1], [0, 1], "k--")
+            ax.set_xlabel("False Positive Rate")
+            ax.set_ylabel("True Positive Rate")
+            ax.set_title("ROC Curve")
             ax.legend()
         else:
-            ax.text(0.5, 0.5, 'Only one class present', ha='center', va='center')
-            ax.set_title('ROC Curve (N/A)')
+            ax.text(0.5, 0.5, "Only one class present", ha="center", va="center")
+            ax.set_title("ROC Curve (N/A)")
 
         # 4. Confusion Matrix
         ax = axes[1, 1]
         cm = confusion_matrix(binary_targets, (binary_preds > 0.5).astype(int))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                    xticklabels=['Non-binder', 'Binder'],
-                    yticklabels=['Non-binder', 'Binder'])
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('True')
-        ax.set_title('Confusion Matrix')
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt="d",
+            cmap="Blues",
+            ax=ax,
+            xticklabels=["Non-binder", "Binder"],
+            yticklabels=["Non-binder", "Binder"],
+        )
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("True")
+        ax.set_title("Confusion Matrix")
 
         plt.tight_layout()
-        plt.savefig(f'{split_name}_{module_tag}_epoch_{epoch}.png', dpi=150)
+        plt.savefig(f"{split_name}_{module_tag}_epoch_{epoch}.png", dpi=150)
         plt.close()
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader):
+    def train(
+        self, train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader
+    ):
         """Main training loop with train/val/test splits."""
         logger.info("Starting training...")
 
@@ -953,7 +1052,9 @@ class AffinityFinetuner:
             test_metrics = self.validate(test_loader, epoch, split_name="test")
 
             # Generate plots at specified intervals
-            should_plot = (epoch + 1) % self.config.get("plot_every", 5) == 0 or epoch == 0
+            should_plot = (epoch + 1) % self.config.get(
+                "plot_every", 5
+            ) == 0 or epoch == 0
             if should_plot:
                 # Generate plots for all splits
                 self._generate_split_plots(train_loader, epoch, "train")
@@ -970,25 +1071,35 @@ class AffinityFinetuner:
             epoch_time = time.time() - epoch_start
 
             # Log
-            logger.info(f"\nEpoch [{epoch+1}/{self.config['num_epochs']}] ({epoch_time:.1f}s)")
+            logger.info(
+                f"\nEpoch [{epoch+1}/{self.config['num_epochs']}] ({epoch_time:.1f}s)"
+            )
             logger.info(f"  Train Loss: {train_metrics['loss']:.4f}")
-            logger.info(f"  Val Loss: {val_metrics['loss']:.4f}, MAE: {val_metrics['pkd_mae']:.3f}")
-            logger.info(f"  Test Loss: {test_metrics['loss']:.4f}, MAE: {test_metrics['pkd_mae']:.3f}, "
-                       f"R²: {test_metrics['pkd_r2']:.3f}, Acc: {test_metrics['binary_accuracy']:.1%}")
+            logger.info(
+                f"  Val Loss: {val_metrics['loss']:.4f}, MAE: {val_metrics['pkd_mae']:.3f}"
+            )
+            logger.info(
+                f"  Test Loss: {test_metrics['loss']:.4f}, MAE: {test_metrics['pkd_mae']:.3f}, "
+                f"R²: {test_metrics['pkd_r2']:.3f}, Acc: {test_metrics['binary_accuracy']:.1%}"
+            )
 
             # Check best (using validation MAE for model selection)
             if val_metrics["pkd_mae"] < self.best_metrics["val_mae"]:
-                self.best_metrics.update({
-                    "val_loss": val_metrics["loss"],
-                    "val_mae": val_metrics["pkd_mae"],
-                    "val_r2": val_metrics["pkd_r2"],
-                    "test_mae": test_metrics["pkd_mae"],
-                    "test_r2": test_metrics["pkd_r2"],
-                    "epoch": epoch + 1
-                })
+                self.best_metrics.update(
+                    {
+                        "val_loss": val_metrics["loss"],
+                        "val_mae": val_metrics["pkd_mae"],
+                        "val_r2": val_metrics["pkd_r2"],
+                        "test_mae": test_metrics["pkd_mae"],
+                        "test_r2": test_metrics["pkd_r2"],
+                        "epoch": epoch + 1,
+                    }
+                )
                 self.patience_counter = 0
                 self.save_checkpoint(epoch, val_metrics, is_best=True)
-                logger.info(f"  New best model! Val MAE: {val_metrics['pkd_mae']:.4f}, Test MAE: {test_metrics['pkd_mae']:.4f}")
+                logger.info(
+                    f"  New best model! Val MAE: {val_metrics['pkd_mae']:.4f}, Test MAE: {test_metrics['pkd_mae']:.4f}"
+                )
             else:
                 self.patience_counter += 1
 
@@ -997,24 +1108,32 @@ class AffinityFinetuner:
                 logger.info(f"Early stopping at epoch {epoch+1}")
                 break
 
-        logger.info(f"\nBest model at epoch {self.best_metrics['epoch']} with Val MAE: {self.best_metrics['val_mae']:.4f}, "
-                   f"Test MAE: {self.best_metrics.get('test_mae', 'N/A')}")
+        logger.info(
+            f"\nBest model at epoch {self.best_metrics['epoch']} with Val MAE: {self.best_metrics['val_mae']:.4f}, "
+            f"Test MAE: {self.best_metrics.get('test_mae', 'N/A')}"
+        )
 
     def _generate_split_plots(self, loader: DataLoader, epoch: int, split_name: str):
         """Generate plots for a specific data split."""
-        pkd_preds, pkd_targets, binary_preds, binary_targets, binding_strengths = [], [], [], [], []
-        
+        pkd_preds, pkd_targets, binary_preds, binary_targets, binding_strengths = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+
         self.model.eval()
         with torch.no_grad():
             for batch in loader:
                 if batch is None or isinstance(batch.get("s_inputs_affinity"), list):
                     continue
-                    
+
                 # Move to device
                 s_inputs = batch["s_inputs_affinity"].to(self.device)
                 z = batch["z_affinity"].to(self.device)
                 coords = batch["coords_affinity"].to(self.device)
-                
+
                 # Move feats tensors to device
                 feats = {}
                 for key, val in batch["feats"].items():
@@ -1022,33 +1141,40 @@ class AffinityFinetuner:
                         feats[key] = val.to(self.device)
                     else:
                         feats[key] = val
-                
+
                 output = self.model(
                     s_inputs=s_inputs,
                     z=z,
                     x_pred=coords,
                     feats=feats,
                     multiplicity=1,
-                    use_kernels=batch["use_kernels"]
+                    use_kernels=batch["use_kernels"],
                 )
-                
+
                 pred_pkd = output["affinity_pred_value"].squeeze()
                 pred_binary = output["affinity_logits_binary"].squeeze()
-                
+
                 if pred_pkd.dim() == 0:
                     pred_pkd = pred_pkd.unsqueeze(0)
                 if pred_binary.dim() == 0:
                     pred_binary = pred_binary.unsqueeze(0)
-                
+
                 pkd_preds.extend(pred_pkd.cpu().numpy().flatten())
                 binary_preds.extend(torch.sigmoid(pred_binary).cpu().numpy().flatten())
                 pkd_targets.extend(batch["target_pkd"].numpy().flatten())
                 binary_targets.extend(batch["target_binary"].numpy().flatten())
                 binding_strengths.extend(batch["binding_strengths"])
-        
+
         if len(pkd_preds) > 0:
-            self._create_plots(pkd_preds, pkd_targets, binary_preds, binary_targets, 
-                              binding_strengths, epoch, split_name)
+            self._create_plots(
+                pkd_preds,
+                pkd_targets,
+                binary_preds,
+                binary_targets,
+                binding_strengths,
+                epoch,
+                split_name,
+            )
 
     def save_checkpoint(self, epoch: int, metrics: Dict, is_best: bool = False):
         """Save checkpoint."""
@@ -1061,10 +1187,14 @@ class AffinityFinetuner:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "metrics": metrics,
             "config": self.config,
-            "best_metrics": self.best_metrics
+            "best_metrics": self.best_metrics,
         }
 
-        path = f"checkpoint_{module_tag}_best.pt" if is_best else f"checkpoint_{module_tag}_epoch_{epoch+1}.pt"
+        path = (
+            f"checkpoint_{module_tag}_best.pt"
+            if is_best
+            else f"checkpoint_{module_tag}_epoch_{epoch+1}.pt"
+        )
         torch.save(checkpoint, path)
         logger.info(f"Saved checkpoint to {path}")
 
@@ -1091,16 +1221,30 @@ def main():
     parser = argparse.ArgumentParser(description="Finetune Boltz affinity module")
 
     # Module selection
-    parser.add_argument("--module", type=int, default=1, choices=[1, 2],
-        help="Which affinity module to train (1 or 2)")
+    parser.add_argument(
+        "--module",
+        type=int,
+        default=1,
+        choices=[1, 2],
+        help="Which affinity module to train (1 or 2)",
+    )
 
     # Data paths
-    parser.add_argument("--msa_dir", type=str,
-        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/affinity_train_dataset/msa_folder_train")
-    parser.add_argument("--yaml_dir", type=str,
-        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/affinity_train_dataset/yaml_folder_train")
-    parser.add_argument("--checkpoint_path", type=str,
-        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/.boltz/boltz2_aff.ckpt")
+    parser.add_argument(
+        "--msa_dir",
+        type=str,
+        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/affinity_train_dataset/msa_folder_train",
+    )
+    parser.add_argument(
+        "--yaml_dir",
+        type=str,
+        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/new_boltz/boltz/affinity_train_dataset/yaml_folder_train",
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        type=str,
+        default="/pscratch/sd/v/vladygin/side_projects/ML_coding_series/Boltz-tests/.boltz/boltz2_aff.ckpt",
+    )
 
     # Training params
     parser.add_argument("--num_epochs", type=int, default=50)
@@ -1115,12 +1259,24 @@ def main():
     parser.add_argument("--binary_loss_weight", type=float, default=0.5)
 
     # Binding threshold for class balancing
-    parser.add_argument("--binding_threshold", type=float, default=1e-6,
-        help="Kd threshold in M for binary classification (default: 1e-6 = 1 μM)")
-    parser.add_argument("--auto_balance_threshold", action="store_true", default=True,
-        help="Auto-select threshold using median Kd for ~50/50 class balance")
-    parser.add_argument("--no_auto_balance", dest="auto_balance_threshold", action="store_false",
-        help="Disable auto-balance and use fixed binding_threshold")
+    parser.add_argument(
+        "--binding_threshold",
+        type=float,
+        default=1e-6,
+        help="Kd threshold in M for binary classification (default: 1e-6 = 1 μM)",
+    )
+    parser.add_argument(
+        "--auto_balance_threshold",
+        action="store_true",
+        default=True,
+        help="Auto-select threshold using median Kd for ~50/50 class balance",
+    )
+    parser.add_argument(
+        "--no_auto_balance",
+        dest="auto_balance_threshold",
+        action="store_false",
+        help="Disable auto-balance and use fixed binding_threshold",
+    )
 
     # Data split (train 85.5%, val 4.5%, test 10%)
     parser.add_argument("--train_ratio", type=float, default=0.855)
@@ -1128,8 +1284,12 @@ def main():
     parser.add_argument("--max_samples", type=int, default=None)
 
     # Scheduler
-    parser.add_argument("--scheduler_type", type=str, default="cosine",
-        choices=["cosine", "plateau", "none"])
+    parser.add_argument(
+        "--scheduler_type",
+        type=str,
+        default="cosine",
+        choices=["cosine", "plateau", "none"],
+    )
     parser.add_argument("--min_lr", type=float, default=1e-7)
     parser.add_argument("--cosine_T0", type=int, default=10)
     parser.add_argument("--cosine_Tmult", type=int, default=2)
@@ -1147,14 +1307,16 @@ def main():
     set_seed(args.seed)
     config = vars(args)
 
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"Boltz Affinity Finetuning - Module {args.module}")
-    logger.info("="*60)
+    logger.info("=" * 60)
     logger.info(f"Training affinity_module{args.module}")
     if args.auto_balance_threshold:
         logger.info("Auto-balance threshold: ENABLED (will use median Kd)")
     else:
-        logger.info(f"Binding threshold: {args.binding_threshold} M ({args.binding_threshold*1e6:.1f} μM)")
+        logger.info(
+            f"Binding threshold: {args.binding_threshold} M ({args.binding_threshold*1e6:.1f} μM)"
+        )
 
     # Create datasets (train/val/test)
     logger.info("\nCreating datasets...")
@@ -1167,7 +1329,7 @@ def main():
         binding_threshold=args.binding_threshold,
         auto_balance_threshold=args.auto_balance_threshold,
         max_samples=args.max_samples,
-        seed=args.seed
+        seed=args.seed,
     )
 
     train_dataset = AffinityDataset(split="train", **dataset_kwargs)
@@ -1181,7 +1343,7 @@ def main():
         shuffle=True,
         num_workers=args.num_workers,
         collate_fn=custom_collate_fn,
-        drop_last=True
+        drop_last=True,
     )
 
     val_loader = DataLoader(
@@ -1189,7 +1351,7 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        collate_fn=custom_collate_fn
+        collate_fn=custom_collate_fn,
     )
 
     test_loader = DataLoader(
@@ -1197,21 +1359,25 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        collate_fn=custom_collate_fn
+        collate_fn=custom_collate_fn,
     )
 
-    logger.info(f"Dataset sizes - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+    logger.info(
+        f"Dataset sizes - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}"
+    )
 
     # Update config
-    config.update({
-        "train_samples": len(train_dataset),
-        "val_samples": len(val_dataset),
-        "test_samples": len(test_dataset),
-        "train_stats": train_dataset.stats,
-        "val_stats": val_dataset.stats,
-        "test_stats": test_dataset.stats,
-        "binding_threshold_used": train_dataset.binding_threshold  # actual threshold used
-    })
+    config.update(
+        {
+            "train_samples": len(train_dataset),
+            "val_samples": len(val_dataset),
+            "test_samples": len(test_dataset),
+            "train_stats": train_dataset.stats,
+            "val_stats": val_dataset.stats,
+            "test_stats": test_dataset.stats,
+            "binding_threshold_used": train_dataset.binding_threshold,  # actual threshold used
+        }
+    )
 
     # Create trainer
     trainer = AffinityFinetuner(config)
@@ -1227,4 +1393,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

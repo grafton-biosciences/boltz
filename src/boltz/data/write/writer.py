@@ -15,6 +15,7 @@ from boltz.data.write.pdb import to_pdb
 
 from boltz.data.write.lis_lia import afm3_plot_average_to_df_my
 
+
 class BoltzWriter(BasePredictionWriter):
     """Custom writer for predictions."""
 
@@ -205,12 +206,14 @@ class BoltzWriter(BasePredictionWriter):
                         "complex_ipde",
                     ]:
                         confidence_summary_dict[key] = prediction[key][model_idx].item()
-                    
-                    #print("IPTM", model_idx)
-                    #print(prediction['iptm'][model_idx])
+
+                    # print("IPTM", model_idx)
+                    # print(prediction['iptm'][model_idx])
                     if "best_iptm_idx" in prediction:
-                        confidence_summary_dict["best_iptm_idx"] = idx_to_rank[prediction["best_iptm_idx"]] 
-                    
+                        confidence_summary_dict["best_iptm_idx"] = idx_to_rank[
+                            prediction["best_iptm_idx"]
+                        ]
+
                     confidence_summary_dict["chains_ptm"] = {
                         idx: prediction["pair_chains_iptm"][idx][idx][model_idx].item()
                         for idx in prediction["pair_chains_iptm"]
@@ -225,13 +228,12 @@ class BoltzWriter(BasePredictionWriter):
                         for idx1 in prediction["pair_chains_iptm"]
                     }
 
-
                     # Compute lis lia from pae
                     if "pae" in prediction:
                         # Pae loading
                         pae = prediction["pae"][model_idx]
                         pae_matrix = pae.cpu().numpy()
-                        
+
                         # Creating residues representation coordinates using residue center atom
                         # This aligns the contact map size with the PAE matrix for proteins and nucleic acids
                         residues_tbl = new_structure.residues
@@ -239,40 +241,54 @@ class BoltzWriter(BasePredictionWriter):
                         coordinates = np.zeros((len(residues_tbl), 3), dtype=np.float32)
                         for i, res in enumerate(residues_tbl):
                             # atom_center is already an absolute atom index after remove_invalid_chains
-                            center_atom_global_idx = int(res["atom_center"]) 
+                            center_atom_global_idx = int(res["atom_center"])
                             coordinates[i] = atoms_tbl[center_atom_global_idx]["coords"]
 
-                            
                         # Creating token_chain_ids
-                        token_chain_ids = ['A']*len(new_structure.residues)
+                        token_chain_ids = ["A"] * len(new_structure.residues)
                         for chain in new_structure.chains:
-                            token_chain_ids[chain['res_idx']:chain['res_idx'] + chain['res_num']] = [chain['name']]*chain['res_num']
-    
-                        
+                            token_chain_ids[
+                                chain["res_idx"] : chain["res_idx"] + chain["res_num"]
+                            ] = [chain["name"]] * chain["res_num"]
+
                         # Creating chain iptm array
-                        N = max([int(key) for key in confidence_summary_dict["pair_chains_iptm"]])
-                        chain_pair_iptm = np.zeros((N+1, N+1))
+                        N = max(
+                            [
+                                int(key)
+                                for key in confidence_summary_dict["pair_chains_iptm"]
+                            ]
+                        )
+                        chain_pair_iptm = np.zeros((N + 1, N + 1))
                         for key1 in confidence_summary_dict["pair_chains_iptm"]:
-                            for key2 in confidence_summary_dict["pair_chains_iptm"][key1]:
-                                chain_pair_iptm[int(key1), int(key2)] = confidence_summary_dict["pair_chains_iptm"][key1][key2]
-                        
-                        df_interactions, ilis_matrix, ilia_matrix = afm3_plot_average_to_df_my(pae_matrix, 
-                                                             token_chain_ids, 
-                                                             chain_pair_iptm, 
-                                                             coordinates, 
-                                                             pae_cutoff = 12, 
-                                                             distance_cutoff = 8
-                                                            )
+                            for key2 in confidence_summary_dict["pair_chains_iptm"][
+                                key1
+                            ]:
+                                chain_pair_iptm[int(key1), int(key2)] = (
+                                    confidence_summary_dict["pair_chains_iptm"][key1][
+                                        key2
+                                    ]
+                                )
+
+                        df_interactions, ilis_matrix, ilia_matrix = (
+                            afm3_plot_average_to_df_my(
+                                pae_matrix,
+                                token_chain_ids,
+                                chain_pair_iptm,
+                                coordinates,
+                                pae_cutoff=12,
+                                distance_cutoff=8,
+                            )
+                        )
                         ilis_matrix = ilis_matrix.tolist()
                         ilia_matrix = ilia_matrix.tolist()
                         confidence_summary_dict["pair_chains_ilis"] = {
                             idx1: {
                                 idx2: ilis_matrix[int(idx1)][int(idx2)]
                                 for idx2 in prediction["pair_chains_iptm"][idx1]
-                                }
-                                for idx1 in prediction["pair_chains_iptm"]
+                            }
+                            for idx1 in prediction["pair_chains_iptm"]
                         }
-                        
+
                         confidence_summary_dict["pair_chains_ilia"] = {
                             idx1: {
                                 idx2: ilia_matrix[int(idx1)][int(idx2)]
@@ -280,8 +296,7 @@ class BoltzWriter(BasePredictionWriter):
                             }
                             for idx1 in prediction["pair_chains_iptm"]
                         }
-                        
-                    
+
                     with path.open("w") as f:
                         f.write(
                             json.dumps(
@@ -315,16 +330,13 @@ class BoltzWriter(BasePredictionWriter):
                         / f"pde_{record.id}_model_{idx_to_rank[model_idx]}.npz"
                     )
                     np.savez_compressed(path, pde=pde.cpu().numpy())
-                
+
             # Save embeddings
             if self.write_embeddings and "s" in prediction and "z" in prediction:
                 s = prediction["s"].cpu().numpy()
                 z = prediction["z"].cpu().numpy()
 
-                path = (
-                    struct_dir
-                    / f"embeddings_{record.id}.npz"
-                )
+                path = struct_dir / f"embeddings_{record.id}.npz"
                 np.savez_compressed(path, s=s, z=z)
 
     def on_predict_epoch_end(
@@ -383,12 +395,22 @@ class BoltzAffinityWriter(BasePredictionWriter):
         }
 
         if "binder_affinity_values" in prediction:
-            binder_residue_indices = [el.item() for el in prediction["binder_residue_indices"]]
-            binder_affinity_values = [el.item() for el in prediction["binder_affinity_values"]]
-            binder_affinity_probabilities = [el.item() for el in prediction["binder_affinity_probabilities"]]
-            affinity_summary["binder_affinity_values"] = dict(sorted(zip(binder_residue_indices, binder_affinity_values)))
-            affinity_summary["binder_affinity_probabilities"] = dict(sorted(zip(binder_residue_indices, binder_affinity_probabilities)))
-            #affinity_summary["binder_affinity_indices"] = sorted()
+            binder_residue_indices = [
+                el.item() for el in prediction["binder_residue_indices"]
+            ]
+            binder_affinity_values = [
+                el.item() for el in prediction["binder_affinity_values"]
+            ]
+            binder_affinity_probabilities = [
+                el.item() for el in prediction["binder_affinity_probabilities"]
+            ]
+            affinity_summary["binder_affinity_values"] = dict(
+                sorted(zip(binder_residue_indices, binder_affinity_values))
+            )
+            affinity_summary["binder_affinity_probabilities"] = dict(
+                sorted(zip(binder_residue_indices, binder_affinity_probabilities))
+            )
+            # affinity_summary["binder_affinity_indices"] = sorted()
 
         if "affinity_pred_value1" in prediction:
             pred_affinity_value1 = prediction["affinity_pred_value1"]

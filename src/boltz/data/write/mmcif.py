@@ -68,13 +68,19 @@ def to_mmcif(
 
         if mol_type == const.chain_type_ids["PROTEIN"]:
             alphabet = ihm.LPeptideAlphabet()
-            chem_comp = lambda x: ihm.LPeptideChemComp(id=x, code=x, code_canonical="X")  # noqa: E731
+            chem_comp = lambda x: ihm.LPeptideChemComp(
+                id=x, code=x, code_canonical="X"
+            )  # noqa: E731
         elif mol_type == const.chain_type_ids["DNA"]:
             alphabet = ihm.DNAAlphabet()
-            chem_comp = lambda x: ihm.DNAChemComp(id=x, code=x, code_canonical="N")  # noqa: E731
+            chem_comp = lambda x: ihm.DNAChemComp(
+                id=x, code=x, code_canonical="N"
+            )  # noqa: E731
         elif mol_type == const.chain_type_ids["RNA"]:
             alphabet = ihm.RNAAlphabet()
-            chem_comp = lambda x: ihm.RNAChemComp(id=x, code=x, code_canonical="N")  # noqa: E731
+            chem_comp = lambda x: ihm.RNAChemComp(
+                id=x, code=x, code_canonical="N"
+            )  # noqa: E731
         elif len(sequence) > 1:
             alphabet = {}
             chem_comp = lambda x: ihm.SaccharideChemComp(id=x)  # noqa: E731

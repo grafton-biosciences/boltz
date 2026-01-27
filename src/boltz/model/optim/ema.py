@@ -186,7 +186,9 @@ class EMA(Callback):
         if self.ema_initialized:
             checkpoint["ema"] = self.state_dict()
 
-    def on_train_start(self, trainer: Trainer, pl_module: LightningModule) -> None:  # noqa: ARG002
+    def on_train_start(
+        self, trainer: Trainer, pl_module: LightningModule
+    ) -> None:  # noqa: ARG002
         """Initialize EMA weights and move to device.
 
         Parameters

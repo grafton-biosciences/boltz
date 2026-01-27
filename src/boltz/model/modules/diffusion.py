@@ -535,7 +535,9 @@ class AtomDiffusion(Module):
 
                 sample_ids = torch.arange(multiplicity).to(atom_coords_noisy.device)
                 # Calculate number of chunks: ceil(multiplicity / max_parallel_samples)
-                num_chunks = (multiplicity + max_parallel_samples - 1) // max_parallel_samples
+                num_chunks = (
+                    multiplicity + max_parallel_samples - 1
+                ) // max_parallel_samples
                 sample_ids_chunks = sample_ids.chunk(num_chunks)
                 for sample_ids_chunk in sample_ids_chunks:
                     atom_coords_denoised_chunk, token_a_chunk = (
@@ -646,9 +648,11 @@ class AtomDiffusion(Module):
                     resample_indices = (
                         torch.multinomial(
                             resample_weights,
-                            resample_weights.shape[1]
-                            if step_idx < num_sampling_steps - 1
-                            else 1,
+                            (
+                                resample_weights.shape[1]
+                                if step_idx < num_sampling_steps - 1
+                                else 1
+                            ),
                             replacement=True,
                         )
                         + resample_weights.shape[1]

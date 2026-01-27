@@ -121,7 +121,9 @@ class Boltz2Ensemble(LightningModule):
 
         if validate_structure:
             # Late init at setup time
-            self.val_group_mapper = {}  # maps a dataset index to a validation group name
+            self.val_group_mapper = (
+                {}
+            )  # maps a dataset index to a validation group name
             self.validator_mapper = {}  # maps a dataset index to a validator
 
             # Validators for each dataset keep track of all metrics,
@@ -325,7 +327,7 @@ class Boltz2Ensemble(LightningModule):
                 self.confidence_module = torch.compile(
                     self.confidence_module, dynamic=False, fullgraph=False
                 )
-                
+
         if affinity_prediction:
 
             self.atomic_affinity = atomic_affinity
@@ -338,8 +340,12 @@ class Boltz2Ensemble(LightningModule):
                 "interface_cutoff": interface_cutoff,
             }
             if affinity_ensemble:
-                self.affinity_module1 = AffinityModule(token_s, token_z, **affinity_model_args1)
-                self.affinity_module2 = AffinityModule(token_s, token_z,  **affinity_model_args2)
+                self.affinity_module1 = AffinityModule(
+                    token_s, token_z, **affinity_model_args1
+                )
+                self.affinity_module2 = AffinityModule(
+                    token_s, token_z, **affinity_model_args2
+                )
                 if compile_affinity:
                     self.affinity_module1 = torch.compile(
                         self.affinity_module1, dynamic=False, fullgraph=False
@@ -351,33 +357,34 @@ class Boltz2Ensemble(LightningModule):
                 self.affinity_module_ensemble1 = EnsembleProteinAffinityModule(
                     input_embedder=self.input_embedder,
                     affinity_module=self.affinity_module1,
-                    atomic_affinity = self.atomic_affinity,
-                    mol_dir = str(self.mol_dir),
-                    **ensemble_args
+                    atomic_affinity=self.atomic_affinity,
+                    mol_dir=str(self.mol_dir),
+                    **ensemble_args,
                 )
                 self.affinity_module_ensemble2 = EnsembleProteinAffinityModule(
                     input_embedder=self.input_embedder,
                     affinity_module=self.affinity_module2,
-                    atomic_affinity = self.atomic_affinity,
-                    mol_dir = str(self.mol_dir),
-                    **ensemble_args
+                    atomic_affinity=self.atomic_affinity,
+                    mol_dir=str(self.mol_dir),
+                    **ensemble_args,
                 )
             else:
-                self.affinity_module = AffinityModule(token_s, token_z, **affinity_model_args)
+                self.affinity_module = AffinityModule(
+                    token_s, token_z, **affinity_model_args
+                )
                 if compile_affinity:
                     self.affinity_module = torch.compile(
                         self.affinity_module, dynamic=False, fullgraph=False
                     )
 
-                
                 self.affinity_module_ensemble = EnsembleProteinAffinityModule(
                     input_embedder=self.input_embedder,
                     affinity_module=self.affinity_module,
-                    atomic_affinity = self.atomic_affinity,
-                    mol_dir = str(self.mol_dir),
-                    **ensemble_args
+                    atomic_affinity=self.atomic_affinity,
+                    mol_dir=str(self.mol_dir),
+                    **ensemble_args,
                 )
-                
+
         # Remove grad from weights they are not trained for ddp
         if not structure_prediction_training:
             for name, param in self.named_parameters():
@@ -387,12 +394,12 @@ class Boltz2Ensemble(LightningModule):
                 ):
                     param.requires_grad = False
 
-
     def setup(self, stage: str) -> None:
         """Set the model for training, validation and inference."""
         if stage == "predict" and not (
             torch.cuda.is_available()
-            and torch.cuda.get_device_properties(torch.device("cuda")).major >= 8.0  # noqa: PLR2004
+            and torch.cuda.get_device_properties(torch.device("cuda")).major
+            >= 8.0  # noqa: PLR2004
         ):
             self.use_kernels = False
 
@@ -432,12 +439,12 @@ class Boltz2Ensemble(LightningModule):
     def _load_precomputed_structure(self, feats):
         """
         Load pre-computed structure from the first run for affinity prediction.
-        
+
         Parameters
         ----------
         feats : dict[str, Tensor]
             Feature dictionary containing record information
-            
+
         Returns
         -------
         torch.Tensor
@@ -446,33 +453,36 @@ class Boltz2Ensemble(LightningModule):
         # Get the record ID from features
         record_id = feats.get("record", [None])[0]
         if record_id is None:
-            raise ValueError("Record ID not found in features for loading pre-computed structure")
-        
+            raise ValueError(
+                "Record ID not found in features for loading pre-computed structure"
+            )
+
         # Load the pre-computed structure
         # The structure should be saved as pre_affinity_{record_id}.npz
         import numpy as np
         from pathlib import Path
-        
+
         # This is a simplified approach - in practice, you'd need to pass the output directory
         # For now, we'll assume the structure is available in the features or loaded elsewhere
         # TODO: Implement proper loading of pre-computed structure
-        
+
         # For now, return a placeholder that matches the expected shape
         # In a full implementation, you would load the actual coordinates from the saved file
         batch_size = feats["token_pad_mask"].shape[0]
         num_atoms = feats["atom_pad_mask"].shape[1]
-        
+
         # Create dummy coordinates (this should be replaced with actual loading)
-        coords = torch.zeros(batch_size, 1, num_atoms, 3, device=feats["token_pad_mask"].device)
-        
+        coords = torch.zeros(
+            batch_size, 1, num_atoms, 3, device=feats["token_pad_mask"].device
+        )
+
         return coords
 
     def _run_recycling(self, feats, recycling_steps):
         s_inputs = self.input_embedder(feats)
         s_init = self.s_init(s_inputs)
         z_init = (
-            self.z_init_1(s_inputs)[:, :, None]
-            + self.z_init_2(s_inputs)[:, None, :]
+            self.z_init_1(s_inputs)[:, :, None] + self.z_init_2(s_inputs)[:, None, :]
         )
         relative_position_encoding = self.rel_pos(feats)
         z_init = z_init + relative_position_encoding
@@ -480,7 +490,7 @@ class Boltz2Ensemble(LightningModule):
         if self.bond_type_feature:
             z_init = z_init + self.token_bonds_type(feats["type_bonds"].long())
         z_init = z_init + self.contact_conditioning(feats)
-        
+
         # Perform rounds of the pairwise stack
         s = torch.zeros_like(s_init)
         z = torch.zeros_like(z_init)
@@ -513,9 +523,7 @@ class Boltz2Ensemble(LightningModule):
             else:
                 msa_module = self.msa_module
 
-            z = z + msa_module(
-                z, s_inputs, feats, use_kernels=self.use_kernels
-            )
+            z = z + msa_module(z, s_inputs, feats, use_kernels=self.use_kernels)
 
             # Revert to uncompiled version for validation
             if self.is_pairformer_compiled and not self.training:
@@ -529,11 +537,9 @@ class Boltz2Ensemble(LightningModule):
                 mask=mask,
                 pair_mask=pair_mask,
                 use_kernels=self.use_kernels,
-            )    
+            )
 
         return z
-                    
-                    
 
     def forward(
         self,
@@ -597,7 +603,9 @@ class Boltz2Ensemble(LightningModule):
                         # Compute pairwise stack
                         if self.use_templates:
                             if self.is_template_compiled and not self.training:
-                                template_module = self.template_module._orig_mod  # noqa: SLF001
+                                template_module = (
+                                    self.template_module._orig_mod
+                                )  # noqa: SLF001
                             else:
                                 template_module = self.template_module
 
@@ -616,7 +624,9 @@ class Boltz2Ensemble(LightningModule):
 
                         # Revert to uncompiled version for validation
                         if self.is_pairformer_compiled and not self.training:
-                            pairformer_module = self.pairformer_module._orig_mod  # noqa: SLF001
+                            pairformer_module = (
+                                self.pairformer_module._orig_mod
+                            )  # noqa: SLF001
                         else:
                             pairformer_module = self.pairformer_module
 
@@ -689,9 +699,9 @@ class Boltz2Ensemble(LightningModule):
 
             if self.training and self.confidence_prediction:
                 assert len(feats["coords"].shape) == 4
-                assert feats["coords"].shape[1] == 1, (
-                    "Only one conformation is supported for confidence"
-                )
+                assert (
+                    feats["coords"].shape[1] == 1
+                ), "Only one conformation is supported for confidence"
 
             # Compute structure module
             if self.training and self.structure_prediction_training:
@@ -769,7 +779,7 @@ class Boltz2Ensemble(LightningModule):
                         x_pred=coords_affinity,
                         feats=feats,
                         run_recycling=self._run_recycling,
-                        recycling_steps = recycling_steps,
+                        recycling_steps=recycling_steps,
                         multiplicity=1,
                         use_kernels=self.use_kernels,
                     )
@@ -779,12 +789,11 @@ class Boltz2Ensemble(LightningModule):
                         x_pred=coords_affinity,
                         feats=feats,
                         run_recycling=self._run_recycling,
-                        recycling_steps = recycling_steps,
+                        recycling_steps=recycling_steps,
                         multiplicity=1,
                         use_kernels=self.use_kernels,
                     )
 
-                    
                     dict_out_affinity_ensemble = {
                         "affinity_pred_value": (
                             dict_out_affinity1["affinity_pred_value"]
@@ -797,17 +806,20 @@ class Boltz2Ensemble(LightningModule):
                         )
                         / 2,
                         "binder_affinity_values": (
-                            dict_out_affinity1["binder_affinity_values"] 
+                            dict_out_affinity1["binder_affinity_values"]
                             + dict_out_affinity2["binder_affinity_values"]
-                        )[:, 0, 0] / 2,
+                        )[:, 0, 0]
+                        / 2,
                         "binder_affinity_probabilities": (
                             dict_out_affinity1["binder_affinity_probabilities"]
                             + dict_out_affinity2["binder_affinity_probabilities"]
-                        )[:, 0, 0] / 2,
-                        "binder_residue_indices": dict_out_affinity1["binder_residue_indices"],
+                        )[:, 0, 0]
+                        / 2,
+                        "binder_residue_indices": dict_out_affinity1[
+                            "binder_residue_indices"
+                        ],
                     }
 
-                    
                     dict_out_affinity1 = {
                         "affinity_pred_value1": dict_out_affinity1[
                             "affinity_pred_value"
@@ -816,13 +828,14 @@ class Boltz2Ensemble(LightningModule):
                             "affinity_probability_binary"
                         ],
                         "ensemble_uncertainty1": dict_out_affinity1.get(
-                            "ensemble_uncertainty", torch.zeros_like(dict_out_affinity1["affinity_pred_value"])
+                            "ensemble_uncertainty",
+                            torch.zeros_like(dict_out_affinity1["affinity_pred_value"]),
                         ),
                         "ensemble_size1": dict_out_affinity1.get(
                             "ensemble_size", torch.tensor(0, dtype=torch.long)
                         ),
                     }
-                    
+
                     dict_out_affinity2 = {
                         "affinity_pred_value2": dict_out_affinity2[
                             "affinity_pred_value"
@@ -831,7 +844,8 @@ class Boltz2Ensemble(LightningModule):
                             "affinity_probability_binary"
                         ],
                         "ensemble_uncertainty2": dict_out_affinity2.get(
-                            "ensemble_uncertainty", torch.zeros_like(dict_out_affinity2["affinity_pred_value"])
+                            "ensemble_uncertainty",
+                            torch.zeros_like(dict_out_affinity2["affinity_pred_value"]),
                         ),
                         "ensemble_size2": dict_out_affinity2.get(
                             "ensemble_size", torch.tensor(0, dtype=torch.long)
@@ -854,7 +868,6 @@ class Boltz2Ensemble(LightningModule):
                     dict_out.update(dict_out_affinity1)
                     dict_out.update(dict_out_affinity2)
 
-
                 else:
                     # Use single ensemble module for protein-protein affinity
                     dict_out_affinity = self.affinity_module_ensemble.forward(
@@ -862,23 +875,32 @@ class Boltz2Ensemble(LightningModule):
                         x_pred=coords_affinity,
                         feats=feats,
                         run_recycling=self._run_recycling,
-                        recycling_steps = recycling_steps,
+                        recycling_steps=recycling_steps,
                         multiplicity=1,
                         use_kernels=self.use_kernels,
                     )
 
                     result = {
                         "affinity_pred_value": dict_out_affinity["affinity_pred_value"],
-                        "affinity_probability_binary": dict_out_affinity["affinity_probability_binary"],
+                        "affinity_probability_binary": dict_out_affinity[
+                            "affinity_probability_binary"
+                        ],
                         "ensemble_uncertainty": dict_out_affinity.get(
-                            "ensemble_uncertainty", torch.zeros_like(dict_out_affinity["affinity_pred_value"])
+                            "ensemble_uncertainty",
+                            torch.zeros_like(dict_out_affinity["affinity_pred_value"]),
                         ),
                         "ensemble_size": dict_out_affinity.get(
                             "ensemble_size", torch.tensor(0, dtype=torch.long)
                         ),
-                        "binder_affinity_values": dict_out_affinity["binder_affinity_values"][:, 0, 0],
-                        "binder_affinity_probabilities": dict_out_affinity["binder_affinity_probabilities"][:, 0, 0],
-                        "binder_residue_indices": dict_out_affinity["binder_residue_indices"]
+                        "binder_affinity_values": dict_out_affinity[
+                            "binder_affinity_values"
+                        ][:, 0, 0],
+                        "binder_affinity_probabilities": dict_out_affinity[
+                            "binder_affinity_probabilities"
+                        ][:, 0, 0],
+                        "binder_residue_indices": dict_out_affinity[
+                            "binder_residue_indices"
+                        ],
                     }
 
                     if self.affinity_mw_correction:
@@ -910,9 +932,9 @@ class Boltz2Ensemble(LightningModule):
 
         return_dict = {}
 
-        assert batch["coords"].shape[0] == 1, (
-            f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
-        )
+        assert (
+            batch["coords"].shape[0] == 1
+        ), f"Validation is not supported for batch sizes={batch['coords'].shape[0]}"
 
         if symmetry_correction:
             true_coords = []
@@ -1038,9 +1060,9 @@ class Boltz2Ensemble(LightningModule):
 
             # TODO remove once multiple conformers are supported
             K = true_coords.shape[1]
-            assert K == 1, (
-                f"Confidence_prediction is not supported for num_ensembles_val={K}."
-            )
+            assert (
+                K == 1
+            ), f"Confidence_prediction is not supported for num_ensembles_val={K}."
 
             # For now, just take the only conformer.
             true_coords = true_coords.squeeze(1)  # (S, L, 3)
@@ -1276,12 +1298,12 @@ class Boltz2Ensemble(LightningModule):
                     pred_dict["pae"] = out["pae"]
                     pred_dict["ptm"] = out["ptm"]
                     pred_dict["iptm"] = out["iptm"]
-                    
+
                     argsort = torch.argsort(pred_dict["iptm"], descending=True)
                     # Finding and saving the best iptm index
                     best_idx = argsort[0].item()
                     pred_dict["best_iptm_idx"] = best_idx
-                    
+
                     pred_dict["ligand_iptm"] = out["ligand_iptm"]
                     pred_dict["protein_iptm"] = out["protein_iptm"]
                     pred_dict["pair_chains_iptm"] = out["pair_chains_iptm"]
@@ -1296,9 +1318,11 @@ class Boltz2Ensemble(LightningModule):
                 ]
 
                 pred_dict["binder_affinity_values"] = out["binder_affinity_values"]
-                pred_dict["binder_affinity_probabilities"] = out["binder_affinity_probabilities"]
+                pred_dict["binder_affinity_probabilities"] = out[
+                    "binder_affinity_probabilities"
+                ]
                 pred_dict["binder_residue_indices"] = out["binder_residue_indices"]
-                
+
                 if self.affinity_ensemble:
                     pred_dict["affinity_pred_value1"] = out["affinity_pred_value1"]
                     pred_dict["affinity_probability_binary1"] = out[
@@ -1308,7 +1332,6 @@ class Boltz2Ensemble(LightningModule):
                     pred_dict["affinity_probability_binary2"] = out[
                         "affinity_probability_binary2"
                     ]
-
 
             return pred_dict
 
@@ -1428,12 +1451,12 @@ class Boltz2Ensemble(LightningModule):
             checkpoint["hyper_parameters"]["training_args"][
                 "diffusion_multiplicity"
             ] = self.training_args.diffusion_multiplicity
-            checkpoint["hyper_parameters"]["training_args"]["recycling_steps"] = (
-                self.training_args.recycling_steps
-            )
-            checkpoint["hyper_parameters"]["training_args"]["weight_decay"] = (
-                self.training_args.weight_decay
-            )
+            checkpoint["hyper_parameters"]["training_args"][
+                "recycling_steps"
+            ] = self.training_args.recycling_steps
+            checkpoint["hyper_parameters"]["training_args"][
+                "weight_decay"
+            ] = self.training_args.weight_decay
 
     def configure_callbacks(self) -> list[Callback]:
         """Configure model callbacks.
@@ -1445,7 +1468,6 @@ class Boltz2Ensemble(LightningModule):
 
         """
         return [EMA(self.ema_decay)] if self.use_ema else []
-
 
     """
     def predict_affinity_s_z(self, feats: dict[str, Tensor], recycling_steps: int, batch: dict[str, Tensor], batch_idx: int):

@@ -173,7 +173,9 @@ def tokenize_structure(  # noqa: C901, PLR0915
         if affinity is not None:
             # Support single chain_id and optional list of chain_ids
             if hasattr(affinity, "chain_ids") and affinity.chain_ids is not None:
-                affinity_mask = int(chain["asym_id"]) in set(int(i) for i in affinity.chain_ids)
+                affinity_mask = int(chain["asym_id"]) in set(
+                    int(i) for i in affinity.chain_ids
+                )
             else:
                 affinity_mask = int(chain["asym_id"]) == int(affinity.chain_id)
 

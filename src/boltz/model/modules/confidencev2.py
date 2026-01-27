@@ -119,7 +119,7 @@ class ConfidenceModule(nn.Module):
         use_kernels: bool = False,
     ):
         batch_size = z.shape[0]
-        
+
         if run_sequentially and multiplicity > 1:
             # Handle batch_size > 1 by processing each input in the batch separately
             if batch_size > 1:
@@ -135,7 +135,7 @@ class ConfidenceModule(nn.Module):
                     start_idx = batch_idx * multiplicity
                     end_idx = start_idx + multiplicity
                     x_pred_single = x_pred[start_idx:end_idx]
-                    
+
                     # Extract single-batch feats
                     feats_single = {}
                     for key, val in feats.items():
@@ -143,9 +143,13 @@ class ConfidenceModule(nn.Module):
                             feats_single[key] = val[batch_idx : batch_idx + 1]
                         else:
                             feats_single[key] = val
-                    
-                    pred_distogram_logits_single = pred_distogram_logits[batch_idx : batch_idx + 1] if pred_distogram_logits is not None else None
-                    
+
+                    pred_distogram_logits_single = (
+                        pred_distogram_logits[batch_idx : batch_idx + 1]
+                        if pred_distogram_logits is not None
+                        else None
+                    )
+
                     # Recursive call for single batch item
                     single_out = self.forward(
                         s_inputs_single,
@@ -159,12 +163,14 @@ class ConfidenceModule(nn.Module):
                         use_kernels=use_kernels,
                     )
                     batch_out_dicts.append(single_out)
-                
+
                 # Aggregate results across batch
                 out_dict = {}
                 for key in batch_out_dicts[0]:
                     if key != "pair_chains_iptm":
-                        out_dict[key] = torch.cat([out[key] for out in batch_out_dicts], dim=0)
+                        out_dict[key] = torch.cat(
+                            [out[key] for out in batch_out_dicts], dim=0
+                        )
                     else:
                         # For pair_chains_iptm, we need special handling
                         # Each batch item has its own chain pair structure
@@ -173,13 +179,16 @@ class ConfidenceModule(nn.Module):
                             chains_iptm = {}
                             for chain_idx2 in batch_out_dicts[0][key][chain_idx1]:
                                 chains_iptm[chain_idx2] = torch.cat(
-                                    [out[key][chain_idx1][chain_idx2] for out in batch_out_dicts],
+                                    [
+                                        out[key][chain_idx1][chain_idx2]
+                                        for out in batch_out_dicts
+                                    ],
                                     dim=0,
                                 )
                             pair_chains_iptm[chain_idx1] = chains_iptm
                         out_dict[key] = pair_chains_iptm
                 return out_dict
-            
+
             # Legacy path: batch_size == 1
             out_dicts = []
             for sample_idx in range(multiplicity):

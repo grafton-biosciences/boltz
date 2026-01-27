@@ -136,8 +136,7 @@ class Potential(ABC):
             compute_gradient=True,
         )
         energy, dEnergy = self.compute_function(
-            value, 
-            *args, negation_mask=negation_mask, compute_derivative=True
+            value, *args, negation_mask=negation_mask, compute_derivative=True
         )
         if union_index is not None:
             neg_exp_energy = torch.exp(-1 * parameters["union_lambda"] * energy)
@@ -204,9 +203,11 @@ class Potential(ABC):
         if self.parameters is None:
             return None
         parameters = {
-            name: parameter
-            if not isinstance(parameter, ParameterSchedule)
-            else parameter.compute(t)
+            name: (
+                parameter
+                if not isinstance(parameter, ParameterSchedule)
+                else parameter.compute(t)
+            )
             for name, parameter in self.parameters.items()
         }
         return parameters
@@ -415,8 +416,12 @@ class PoseBustersPotential(FlatBottomPotential, DistancePotential):
             feats["ref_element"].float() @ vdw_radii.unsqueeze(-1)
         ).squeeze(-1)[0]
         bond_cutoffs = 0.35 + atom_vdw_radii[pair_index].mean(dim=0)
-        lower_bounds[~bond_mask] = torch.max(lower_bounds[~bond_mask], bond_cutoffs[~bond_mask])
-        upper_bounds[bond_mask] = torch.min(upper_bounds[bond_mask], bond_cutoffs[bond_mask])
+        lower_bounds[~bond_mask] = torch.max(
+            lower_bounds[~bond_mask], bond_cutoffs[~bond_mask]
+        )
+        upper_bounds[bond_mask] = torch.min(
+            upper_bounds[bond_mask], bond_cutoffs[bond_mask]
+        )
 
         k = torch.ones_like(lower_bounds)
 
@@ -676,9 +681,9 @@ def get_potentials(steering_args, boltz2=False):
                 SymmetricChainCOMPotential(
                     parameters={
                         "guidance_interval": 4,
-                        "guidance_weight": 0.5
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.5 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 0.5,
                         "buffer": ExponentialInterpolation(
                             start=1.0, end=5.0, alpha=-2.0
@@ -702,9 +707,9 @@ def get_potentials(steering_args, boltz2=False):
                 ConnectionsPotential(
                     parameters={
                         "guidance_interval": 1,
-                        "guidance_weight": 0.15
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.15 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 1.0,
                         "buffer": 2.0,
                     }
@@ -712,9 +717,9 @@ def get_potentials(steering_args, boltz2=False):
                 PoseBustersPotential(
                     parameters={
                         "guidance_interval": 1,
-                        "guidance_weight": 0.01
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.01 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 0.1,
                         "bond_buffer": 0.125,
                         "angle_buffer": 0.125,
@@ -724,9 +729,9 @@ def get_potentials(steering_args, boltz2=False):
                 ChiralAtomPotential(
                     parameters={
                         "guidance_interval": 1,
-                        "guidance_weight": 0.1
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.1 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 1.0,
                         "buffer": 0.52360,
                     }
@@ -734,9 +739,9 @@ def get_potentials(steering_args, boltz2=False):
                 StereoBondPotential(
                     parameters={
                         "guidance_interval": 1,
-                        "guidance_weight": 0.05
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.05 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 1.0,
                         "buffer": 0.52360,
                     }
@@ -744,9 +749,9 @@ def get_potentials(steering_args, boltz2=False):
                 PlanarBondPotential(
                     parameters={
                         "guidance_interval": 1,
-                        "guidance_weight": 0.05
-                        if steering_args["physical_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.05 if steering_args["physical_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 1.0,
                         "buffer": 0.26180,
                     }
@@ -777,9 +782,9 @@ def get_potentials(steering_args, boltz2=False):
                 TemplateReferencePotential(
                     parameters={
                         "guidance_interval": 2,
-                        "guidance_weight": 0.1
-                        if steering_args["contact_guidance_update"]
-                        else 0.0,
+                        "guidance_weight": (
+                            0.1 if steering_args["contact_guidance_update"] else 0.0
+                        ),
                         "resampling_weight": 1.0,
                     }
                 ),

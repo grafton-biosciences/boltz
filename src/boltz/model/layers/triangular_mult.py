@@ -20,6 +20,7 @@ def kernel_triangular_mult(
     eps,
 ):
     from cuequivariance_torch.primitives.triangle import triangle_multiplicative_update
+
     return triangle_multiplicative_update(
         x,
         direction=direction,

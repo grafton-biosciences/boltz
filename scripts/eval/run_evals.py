@@ -76,7 +76,9 @@ def evaluate_structure(
     # Evaluate ligand metrics
     out_path = Path(outdir) / f"{name}_ligand.json"
     if out_path.exists():
-        print(f"Skipping recomputation of {name} as ligand json file already exists")  # noqa: T201
+        print(
+            f"Skipping recomputation of {name} as ligand json file already exists"
+        )  # noqa: T201
     else:
         subprocess.run(
             OST_COMPARE_LIGAND.format(
